@@ -514,9 +514,12 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
     <p class="sub" id="cfmNote" style="margin:0 0 12px;"></p>
 
     <div class="modalbtns">
+      <!-- 기본값은 '저장만' 입니다 (노란색 강조 + 처음부터 선택되어 있음).
+           실수로 메일이 나가는 일을 막기 위해서입니다.
+           보내려면 '저장 및 전송' 을 한 번 더 눌러주세요. -->
       <button id="cfmCancel"   class="btn" type="button">취소</button>
-      <button id="cfmSaveOnly" class="btn" type="button">저장만</button>
-      <button id="cfmSend"     class="btn primary" type="button">저장 및 전송</button>
+      <button id="cfmSaveOnly" class="btn primary" type="button">저장만</button>
+      <button id="cfmSend"     class="btn" type="button">저장 및 전송</button>
     </div>
   </div>
 </div>
@@ -1173,13 +1176,17 @@ function openSendConfirm() {
     box.appendChild(row);
   });
 
-  // 회사용이 아니면 왜 하나뿐인지 알려줍니다
-  $('#cfmNote').textContent = (draft.category === '회사용')
-    ? '보낼 대상을 탭해서 고르세요.'
-    : '‘' + draft.category + '’ 분류는 안전을 위해 ‘나에게’로만 보낼 수 있습니다.';
+  // 회사용이 아니면 왜 하나뿐인지 알려줍니다 + 기본이 '저장만' 이라는 안내
+  $('#cfmNote').textContent = ((draft.category === '회사용')
+    ? '보낼 대상을 탭해서 고르세요. '
+    : '‘' + draft.category + '’ 분류는 안전을 위해 ‘나에게’로만 보낼 수 있습니다. ')
+    + '기본은 ‘저장만’ 입니다 — 메일을 보내려면 ‘저장 및 전송’ 을 눌러주세요.';
 
   $('#sendModal').classList.remove('hidden');
-  setTimeout(() => { try { $('#cfmSend').focus(); } catch (e) {} }, 30);
+
+  // 처음 선택되어 있는 버튼은 '저장만' 입니다.
+  // (PC에서 Enter 를 눌러도 메일이 나가지 않고 저장만 됩니다)
+  setTimeout(() => { try { $('#cfmSaveOnly').focus(); } catch (e) {} }, 30);
 }
 
 function closeSendConfirm() {
