@@ -1,0 +1,2128 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<!-- 휴대폰 화면에 딱 맞추기 + 확대 방지 + 아이폰 노치 영역까지 사용 -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>why2korea_memo</title>
+
+<!-- PWA(홈화면 앱) 설정 -->
+<meta name="theme-color" content="#111111">
+<link rel="manifest" href="./manifest.json">
+
+<!-- 아이폰용 설정: 홈화면에서 전체화면으로 실행 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="why2korea_memo">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+
+<style>
+/* ============================================================
+   [CSS 1] 색 설정 — 다크모드가 기본, 시스템이 라이트모드면 밝게
+   ============================================================ */
+:root{
+  --bg:#111111;        /* 배경 */
+  --card:#1c1c1f;      /* 입력창·카드 배경 */
+  --line:#33333a;      /* 테두리 */
+  --text:#f2f2f7;      /* 글자 */
+  --sub:#98989f;       /* 흐린 글자 */
+  --accent:#ffd400;    /* 강조(노랑) */
+  --accent-ink:#1a1a00;/* 노랑 위에 올리는 글자색 */
+  --danger:#ff453a;
+  --ok:#30d158;
+}
+@media (prefers-color-scheme: light){
+  :root{
+    --bg:#f2f2f7; --card:#ffffff; --line:#d5d5db;
+    --text:#111114; --sub:#6b6b73; --accent:#f0b400;
+  }
+}
+
+/* ============================================================
+   [CSS 2] 기본 골격
+   ============================================================ */
+*{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body{ margin:0; padding:0; height:100%; }
+body{
+  background:var(--bg); color:var(--text);
+  font-family:-apple-system, BlinkMacSystemFont, "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", sans-serif;
+  font-size:16px;              /* 16px 이상이어야 아이폰에서 입력 시 화면이 확대되지 않음 */
+  overscroll-behavior:none;    /* 위아래로 당겨서 새로고침되는 것 방지 */
+}
+.hidden{ display:none !important; }
+
+/* 화면(뷰) 하나하나 */
+.view{
+  position:fixed; inset:0;
+  display:flex; flex-direction:column;
+  padding-top:env(safe-area-inset-top);
+  padding-bottom:env(safe-area-inset-bottom);
+}
+.view.scrollable{ overflow-y:auto; -webkit-overflow-scrolling:touch; }
+
+/* 상단 고정 도구 바 */
+.topbar{
+  flex:0 0 auto; display:flex; align-items:center; gap:8px;
+  padding:8px 12px; min-height:52px;
+  background:var(--bg); border-bottom:1px solid var(--line);
+}
+.brand{ font-size:15px; font-weight:700; color:var(--sub); flex:1; overflow:hidden; white-space:nowrap; }
+.tools{ display:flex; gap:8px; }
+
+/* 아이콘 버튼 (터치 영역 48px 이상) */
+.iconbtn{
+  width:48px; height:48px; border-radius:12px; font-size:22px; line-height:1;
+  background:var(--card); color:var(--text); border:1px solid var(--line);
+  display:flex; align-items:center; justify-content:center; cursor:pointer;
+}
+.iconbtn:active{ transform:scale(0.94); }
+/* 녹음 중일 때 빨갛게 깜빡임 */
+.iconbtn.rec{ background:var(--danger); border-color:var(--danger); animation:blink 1s steps(2,start) infinite; }
+@keyframes blink{ 50%{ opacity:0.35; } }
+
+/* 본문 영역
+   overflow-y:auto → 화면이 아주 낮을 때만 스크롤이 생깁니다.
+   (평소에는 스크롤 없이 한 화면에 다 들어오고, 내용이 겹치는 일은 없어집니다) */
+.pad{ flex:1 1 auto; display:flex; flex-direction:column; gap:8px; padding:10px 12px 12px; min-height:0; overflow-y:auto; }
+
+/* ============================================================
+   [CSS 3] 분류 버튼 3개
+   ============================================================ */
+.cats{ display:flex; gap:8px; flex:0 0 auto; }
+.cat{
+  flex:1; min-height:52px; border-radius:12px; font-size:17px; font-weight:700;
+  background:var(--card); color:var(--text); border:1px solid var(--line); cursor:pointer;
+}
+.cat.on{ background:var(--accent); color:var(--accent-ink); border-color:var(--accent); } /* 선택되면 색 반전 */
+
+/* ============================================================
+   [CSS 4] 입력창
+   ============================================================ */
+.field{
+  width:100%; background:var(--card); color:var(--text);
+  border:1px solid var(--line); border-radius:12px;
+  padding:12px; font-size:16px; font-family:inherit;
+}
+.field::placeholder{ color:var(--sub); }
+.field:focus{ outline:2px solid var(--accent); outline-offset:-2px; }
+input.field{ min-height:48px; flex:0 0 auto; }
+textarea.body{ flex:1 1 auto; min-height:90px; resize:none; line-height:1.5; }
+
+/* 음성인식 중인(확정 전) 글자 — 회색으로 미리보기 */
+.interim{ flex:0 0 auto; color:var(--sub); font-size:14px; min-height:0; padding:0 2px; }
+.interim:empty{ display:none; }
+
+/* ============================================================
+   [CSS 5] 버튼들
+   ============================================================ */
+.btn{
+  min-height:48px; padding:0 14px; border-radius:12px; font-size:16px; font-weight:600;
+  background:var(--card); color:var(--text); border:1px solid var(--line); cursor:pointer;
+}
+.btn:active{ transform:scale(0.98); }
+.btn.primary{ background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+.btn.big{ min-height:56px; font-size:19px; font-weight:800; flex:0 0 auto; }
+.btn.small{ min-height:44px; font-size:14px; padding:0 10px; }
+.btn.danger{ background:transparent; color:var(--danger); border-color:var(--danger); }
+.btn:disabled{ opacity:0.35; cursor:not-allowed; }   /* 분류에 따라 비활성화될 때 흐리게 */
+
+.sendrow{ display:flex; gap:6px; flex:0 0 auto; }
+.sendrow .btn{ flex:1; padding:0 4px; font-size:14px; }
+
+.foot{ flex:0 0 auto; text-align:center; padding:4px 0 0; font-size:15px; }
+.foot a{ color:var(--sub); text-decoration:none; padding:8px 10px; display:inline-block; }
+.foot .dot{ color:var(--line); }
+
+/* ============================================================
+   [CSS 6] 손글씨(펜) 입력 패널 — 모달이 아니라 본문 위에 인라인으로
+   ============================================================ */
+/* min-height 를 넉넉히 줘서, 화면이 좁아도 패널이 짜부라지지 않게 합니다.
+   (이 값이 없으면 아래 버튼 줄이 본문·저장 버튼 뒤로 밀려 들어갑니다) */
+.pen{ flex:1 1 auto; display:flex; flex-direction:column; gap:6px; min-height:196px; }
+#penCanvas{
+  flex:1 1 auto; width:100%; min-height:120px;
+  background:#ffffff; border:1px solid var(--line); border-radius:12px;
+  touch-action:none;        /* 손가락으로 그릴 때 화면이 스크롤되지 않게 */
+  cursor:crosshair;
+}
+.penbar{ display:flex; gap:6px; flex:0 0 auto; }
+.penbar .btn{ flex:1; }
+
+/* 손글씨 패널이 열려 있는 동안에는 본문 입력창을 작게 줄입니다.
+   → 패널의 버튼(되돌리기/전체 지우기/취소/완료)이 항상 보이게 됩니다 */
+.pad.pen-open textarea.body{ flex:0 0 auto; height:64px; min-height:64px; }
+
+/* 화면 높이가 아주 낮은 경우(가로로 눕힌 휴대폰, 낮은 PC 창)에 대비 */
+@media (max-height:560px){
+  .pen{ min-height:164px; }
+  #penCanvas{ min-height:96px; }
+  .pad.pen-open textarea.body{ height:48px; min-height:48px; }
+}
+
+/* 첨부된 손글씨 썸네일 */
+.thumbs{ display:flex; gap:6px; flex:0 0 auto; overflow-x:auto; }
+.thumbs:empty{ display:none; }
+.thumb{ position:relative; flex:0 0 auto; }
+.thumb img{ height:52px; width:auto; border-radius:8px; border:1px solid var(--line); background:#fff; display:block; }
+.thumb button{
+  position:absolute; top:-6px; right:-6px; width:22px; height:22px; border-radius:11px;
+  background:var(--danger); color:#fff; border:none; font-size:13px; line-height:1; cursor:pointer;
+}
+
+/* ============================================================
+   [CSS 7] 히스토리 화면
+   ============================================================ */
+.searchrow{ display:flex; gap:8px; flex:0 0 auto; }
+.filters{ display:flex; gap:6px; flex:0 0 auto; }
+.filters .btn{ flex:1; font-size:14px; min-height:44px; padding:0 4px; }
+.filters .btn.on{ background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+
+.list{ display:flex; flex-direction:column; gap:8px; padding-bottom:20px; }
+.item{
+  background:var(--card); border:1px solid var(--line); border-radius:12px;
+  padding:12px; cursor:pointer; display:flex; flex-direction:column; gap:4px;
+}
+.item:active{ border-color:var(--accent); }
+.item .meta{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--sub); flex-wrap:wrap; }
+.badge{ padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; border:1px solid var(--line); }
+.badge.개인용{ background:#2b3a55; color:#a8c8ff; border-color:#3b5075; }
+.badge.집안용{ background:#2b4a35; color:#a8ffc4; border-color:#3b6b4a; }
+.badge.회사용{ background:#553a2b; color:#ffcda8; border-color:#75503b; }
+.badge.sent{ background:transparent; color:var(--ok); border-color:var(--ok); }
+.item .ttl{ font-size:16px; font-weight:700; }
+.item .prev{ font-size:14px; color:var(--sub); overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+.item .ims{ display:flex; gap:4px; }
+.item .ims img{ height:40px; border-radius:6px; border:1px solid var(--line); background:#fff; }
+.empty{ text-align:center; color:var(--sub); padding:40px 10px; font-size:15px; }
+
+/* ============================================================
+   [CSS 8] 설정 / 상세 화면
+   ============================================================ */
+.section{ background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:12px; }
+.section h3{ margin:0 0 8px; font-size:15px; }
+.section p.help{ margin:6px 0 0; font-size:13px; color:var(--sub); line-height:1.5; }
+.section textarea{ min-height:84px; resize:vertical; }
+.row{ display:flex; gap:8px; margin-top:8px; }
+.row .btn{ flex:1; }
+label.radio{ display:flex; align-items:center; gap:10px; min-height:48px; font-size:15px; }
+label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
+
+/* ============================================================
+   [CSS 8-2] 전송 확인 팝업 (저장 및 전송 버튼을 누르면 뜹니다)
+   ============================================================ */
+.modal{
+  position:fixed; inset:0; z-index:70;
+  background:rgba(0,0,0,.66);
+  display:flex; align-items:center; justify-content:center; padding:16px;
+}
+.sheet{
+  background:var(--card); border:1px solid var(--line); border-radius:16px;
+  padding:16px; width:100%; max-width:430px; max-height:86vh; overflow-y:auto;
+  box-shadow:0 14px 40px rgba(0,0,0,.5);
+}
+.sheet h2{ margin:0 0 4px; font-size:18px; }
+.sheet .sub{ margin:0 0 12px; font-size:14px; color:var(--sub); word-break:break-all; line-height:1.5; }
+
+/* 수신 대상 선택 줄 */
+.choice{
+  display:flex; gap:10px; align-items:flex-start; min-height:48px;
+  border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin-bottom:8px;
+  cursor:pointer;
+}
+.choice.on{ border-color:var(--accent); background:rgba(255,212,0,.10); }
+.choice .mark{ width:22px; height:22px; border-radius:11px; border:2px solid var(--line); flex:0 0 auto; margin-top:2px; }
+.choice.on .mark{ border-color:var(--accent); background:var(--accent); }
+.choice .nm{ font-size:16px; font-weight:700; }
+.choice .em{ font-size:12px; color:var(--sub); word-break:break-all; line-height:1.5; margin-top:2px; }
+
+.modalbtns{ display:flex; gap:8px; margin-top:4px; }
+.modalbtns .btn{ flex:1; padding:0 6px; font-size:15px; }
+
+/* 큰 이미지 보기 */
+#imgViewer{ position:fixed; inset:0; background:rgba(0,0,0,.9); z-index:60; display:flex; align-items:center; justify-content:center; padding:16px; }
+#imgViewer img{ max-width:100%; max-height:100%; background:#fff; border-radius:8px; }
+
+/* ============================================================
+   [CSS 9] 토스트(짧은 알림 메시지)
+   ============================================================ */
+#toast{
+  position:fixed; left:50%; transform:translateX(-50%);
+  bottom:calc(24px + env(safe-area-inset-bottom));
+  background:#000; color:#fff; border:1px solid var(--line);
+  padding:12px 18px; border-radius:999px; font-size:15px; max-width:88%;
+  text-align:center; z-index:80; opacity:0; pointer-events:none;
+  transition:opacity .18s ease;
+}
+#toast.show{ opacity:1; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     화면 ①  입력 화면 (앱을 켜면 바로 이 화면)
+     ============================================================ -->
+<div id="view-input" class="view">
+
+  <!-- 1. 상단 입력 도구 바 (최상단 고정) -->
+  <header class="topbar">
+    <div class="brand">⚡ why2korea_memo</div>
+    <div class="tools">
+      <button id="btnMic" class="iconbtn" aria-label="음성입력">🎤</button>
+      <button id="btnPen" class="iconbtn" aria-label="펜입력">✏️</button>
+    </div>
+  </header>
+
+  <main class="pad" id="inputPad">
+    <!-- 2. 분류 선택 -->
+    <div class="cats" id="catRow">
+      <button class="cat" type="button" data-cat="개인용">개인용</button>
+      <button class="cat" type="button" data-cat="집안용">집안용</button>
+      <button class="cat" type="button" data-cat="회사용">회사용</button>
+    </div>
+
+    <!-- 3. 제목 (선택 입력) -->
+    <input id="inpTitle" class="field" type="text" maxlength="120"
+           placeholder="제목 (비워두면 본문 첫 줄이 제목)">
+
+    <!-- 손글씨 패널 (✏️ 버튼을 누르면 본문 위에 펼쳐짐) -->
+    <section id="penPanel" class="pen hidden">
+      <canvas id="penCanvas"></canvas>
+      <div class="penbar">
+        <button id="penUndo"   class="btn small" type="button">되돌리기</button>
+        <button id="penClear"  class="btn small" type="button">전체 지우기</button>
+        <button id="penCancel" class="btn small" type="button">취소</button>
+        <button id="penDone"   class="btn small primary" type="button">완료</button>
+      </div>
+    </section>
+
+    <!-- 4. 본문 (앱을 켜면 여기에 자동 포커스) -->
+    <textarea id="inpBody" class="field body" placeholder="떠오른 생각을 바로 적으세요…"></textarea>
+
+    <!-- 음성인식 중인 글자 미리보기(회색) -->
+    <div id="interim" class="interim"></div>
+
+    <!-- 첨부된 손글씨 썸네일 -->
+    <div id="thumbs" class="thumbs"></div>
+
+    <!-- 5. 저장 및 전송 버튼 (누르면 수신 대상 확인 팝업이 뜹니다) -->
+    <button id="btnSave" class="btn big primary" type="button">저장 및 전송</button>
+
+    <!-- 6. 이메일 전송 버튼 3개 -->
+    <div class="sendrow" id="sendRow">
+      <button class="btn send" type="button" data-group="나에게">나에게</button>
+      <button class="btn send" type="button" data-group="팀장들에게">팀장들에게</button>
+      <button class="btn send" type="button" data-group="팀장들+영업">팀장들+영업</button>
+    </div>
+
+    <!-- 7. 하단 링크 -->
+    <nav class="foot">
+      <a href="#history" id="lnkHistory">히스토리</a>
+      <span class="dot">·</span>
+      <a href="#settings" id="lnkSettings">설정</a>
+    </nav>
+  </main>
+</div>
+
+
+<!-- ============================================================
+     화면 ②  히스토리
+     ============================================================ -->
+<div id="view-history" class="view hidden">
+  <header class="topbar">
+    <button class="iconbtn" type="button" id="histBack" aria-label="뒤로">←</button>
+    <div class="brand">히스토리</div>
+    <button class="iconbtn" type="button" id="histSettings" aria-label="설정">⚙️</button>
+  </header>
+
+  <div class="pad" style="gap:10px;">
+    <div class="searchrow">
+      <input id="inpSearch" class="field" type="search" placeholder="검색 (제목·본문)">
+    </div>
+    <div class="filters" id="filterRow">
+      <button class="btn on" type="button" data-f="전체">전체</button>
+      <button class="btn" type="button" data-f="개인용">개인용</button>
+      <button class="btn" type="button" data-f="집안용">집안용</button>
+      <button class="btn" type="button" data-f="회사용">회사용</button>
+    </div>
+    <!-- 목록은 이 안에서만 스크롤됩니다 -->
+    <div id="histList" class="list" style="flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch;"></div>
+  </div>
+</div>
+
+
+<!-- ============================================================
+     화면 ③  상세 보기 (히스토리에서 항목을 탭하면 열림)
+     ============================================================ -->
+<div id="view-detail" class="view hidden scrollable">
+  <header class="topbar">
+    <button class="iconbtn" type="button" id="detBack" aria-label="뒤로">←</button>
+    <div class="brand" id="detWhen">상세</div>
+  </header>
+
+  <div style="padding:12px;">
+    <div class="section">
+      <h3>분류</h3>
+      <div class="cats" id="detCatRow">
+        <button class="cat" type="button" data-cat="개인용">개인용</button>
+        <button class="cat" type="button" data-cat="집안용">집안용</button>
+        <button class="cat" type="button" data-cat="회사용">회사용</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>제목</h3>
+      <input id="detTitle" class="field" type="text" maxlength="120">
+      <h3 style="margin-top:12px;">본문</h3>
+      <textarea id="detBody" class="field" style="min-height:160px; resize:vertical;"></textarea>
+    </div>
+
+    <div class="section" id="detDrawSection">
+      <h3>손글씨</h3>
+      <div id="detThumbs" class="thumbs"></div>
+    </div>
+
+    <div class="section">
+      <h3>전송 이력</h3>
+      <p class="help" id="detSent">없음</p>
+      <h3 style="margin-top:12px;">다시 이메일 전송</h3>
+      <div class="sendrow" id="detSendRow">
+        <button class="btn send" type="button" data-group="나에게">나에게</button>
+        <button class="btn send" type="button" data-group="팀장들에게">팀장들에게</button>
+        <button class="btn send" type="button" data-group="팀장들+영업">팀장들+영업</button>
+      </div>
+    </div>
+
+    <div class="row" style="margin-bottom:30px;">
+      <button id="detDelete" class="btn danger" type="button">삭제</button>
+      <button id="detSave" class="btn primary" type="button">수정 저장</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============================================================
+     화면 ④  설정
+     ============================================================ -->
+<div id="view-settings" class="view hidden scrollable">
+  <header class="topbar">
+    <button class="iconbtn" type="button" id="setBack" aria-label="뒤로">←</button>
+    <div class="brand">설정</div>
+  </header>
+
+  <div style="padding:12px;">
+    <!-- 개인정보 잠금 -->
+    <div class="section">
+      <h3>🔐 개인정보 잠금</h3>
+      <p class="help">
+        이 앱은 공개된 주소(GitHub Pages)에 올라가 있어서, 이메일 주소와 GAS 주소를
+        암호로 잠가 두었습니다. 기기마다 처음 한 번만 암호를 넣으면 됩니다.
+      </p>
+      <p class="help" id="lockStatus"></p>
+      <div class="row">
+        <button id="btnUnlock" class="btn primary" type="button">암호로 불러오기</button>
+        <button id="btnForget" class="btn danger" type="button">이 기기에서 지우기</button>
+      </div>
+    </div>
+
+    <!-- 수신자 이메일 (코드 수정 없이 여기서 변경) -->
+    <div class="section">
+      <h3>📮 수신자 이메일</h3>
+      <p class="help">
+        한 줄에 이메일 주소 하나씩 적으세요. 저장하면 바로 반영됩니다.<br>
+        여기서 고친 내용은 <b>이 기기에만</b> 저장됩니다. 모든 기기에 반영하려면
+        <code>tools/secret_maker.html</code> 로 암호 파일을 새로 만들어 올려주세요.
+      </p>
+
+      <h3 style="margin-top:12px;">나에게</h3>
+      <textarea id="grpMe" class="field" spellcheck="false"></textarea>
+
+      <h3 style="margin-top:12px;">팀장들에게</h3>
+      <textarea id="grpLeads" class="field" spellcheck="false"></textarea>
+
+      <h3 style="margin-top:12px;">팀장들+영업</h3>
+      <textarea id="grpAll" class="field" spellcheck="false"></textarea>
+
+      <div class="row">
+        <button id="grpReset" class="btn" type="button">암호 파일에서 되돌리기</button>
+        <button id="grpSave" class="btn primary" type="button">이메일 저장</button>
+      </div>
+    </div>
+
+    <!-- 전송 방식 -->
+    <div class="section">
+      <h3>✉️ 전송 방식</h3>
+      <label class="radio">
+        <input type="radio" name="sendmode" value="mailto"> 메일앱 열기 (mailto)
+      </label>
+      <label class="radio">
+        <input type="radio" name="sendmode" value="gas"> 직접 발송 (Google Apps Script)
+      </label>
+      <p class="help">
+        <b>메일앱 열기</b>: 준비 없이 바로 쓸 수 있지만 손글씨 이미지는 첨부되지 않습니다.<br>
+        <b>직접 발송</b>: 아래 URL을 넣으면 손글씨까지 첨부해 자동 발송되고, 구글 드라이브·스프레드시트에도 저장됩니다.
+        URL이 비어 있으면 자동으로 메일앱 열기로 넘어갑니다.
+      </p>
+
+      <h3 style="margin-top:12px;">Google Apps Script 웹앱 URL</h3>
+      <input id="inpGasUrl" class="field" type="url" spellcheck="false"
+             placeholder="https://script.google.com/macros/s/…/exec">
+      <div class="row">
+        <button id="gasTest" class="btn" type="button">연결 테스트</button>
+        <button id="modeSave" class="btn primary" type="button">전송 설정 저장</button>
+      </div>
+    </div>
+
+    <!-- 데이터 백업 -->
+    <div class="section">
+      <h3>💾 데이터 백업</h3>
+      <p class="help">
+        기록은 이 브라우저 안에만 저장됩니다. 앱을 지우거나 기기를 바꾸면 사라지니 가끔 내보내기로 백업하세요.<br>
+        ⚠️ 내보낸 JSON 파일에는 <b>이메일 주소와 GAS 주소가 그대로 들어 있습니다.</b>
+        내 기기·내 드라이브에만 보관하고, GitHub에는 절대 올리지 마세요.
+      </p>
+      <div class="row">
+        <button id="btnExport" class="btn" type="button">JSON 내보내기</button>
+        <button id="btnImport" class="btn" type="button">JSON 가져오기</button>
+      </div>
+      <input id="fileImport" type="file" accept="application/json,.json" class="hidden">
+      <p class="help" id="statInfo"></p>
+    </div>
+
+    <div class="section">
+      <h3>🧹 전체 삭제</h3>
+      <p class="help">모든 기록을 지웁니다. 되돌릴 수 없으니 먼저 내보내기로 백업하세요.</p>
+      <div class="row"><button id="btnWipe" class="btn danger" type="button">기록 전체 삭제</button></div>
+    </div>
+
+    <p class="help" style="text-align:center; padding-bottom:30px;">why2korea_memo · 1.0</p>
+  </div>
+</div>
+
+
+<!-- ============================================================
+     전송 확인 팝업 — [저장 및 전송] 버튼을 누르면 뜹니다
+     현재 분류에서 보낼 수 있는 대상만 보여주고, 확인/취소를 받습니다
+     ============================================================ -->
+<div id="sendModal" class="modal hidden">
+  <div class="sheet">
+    <h2>이렇게 보낼까요?</h2>
+    <p class="sub" id="cfmSummary"></p>
+
+    <!-- 보낼 수 있는 대상 목록 (분류에 따라 자동으로 바뀝니다) -->
+    <div id="cfmChoices"></div>
+
+    <p class="sub" id="cfmNote" style="margin:0 0 12px;"></p>
+
+    <div class="modalbtns">
+      <button id="cfmCancel"   class="btn" type="button">취소</button>
+      <button id="cfmSaveOnly" class="btn" type="button">저장만</button>
+      <button id="cfmSend"     class="btn primary" type="button">저장 및 전송</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     개인정보 잠금 해제 팝업
+     이 앱은 공개 주소에 올라가므로 이메일·GAS 주소를 암호로 잠가 두었습니다.
+     기기마다 처음 한 번만 암호를 넣으면 됩니다.
+     ============================================================ -->
+<div id="unlockModal" class="modal hidden">
+  <div class="sheet">
+    <h2>🔐 개인정보 잠금 해제</h2>
+    <p class="sub">
+      이메일 주소와 발송 설정은 암호로 잠겨 있습니다.<br>
+      암호를 한 번만 넣으면 이 기기에서는 다시 묻지 않습니다.
+    </p>
+
+    <input id="unlockPass" class="field" type="password" autocomplete="current-password"
+           spellcheck="false" placeholder="암호를 넣어주세요">
+
+    <label class="radio" style="margin-top:10px;">
+      <input id="unlockRemember" type="checkbox" checked> 이 기기에 기억하기 (다음부터 안 물어봄)
+    </label>
+
+    <p class="sub" id="unlockMsg" style="margin:10px 0 0; min-height:1.2em;"></p>
+    <p class="sub" id="unlockNote" style="margin:4px 0 12px;"></p>
+
+    <div class="modalbtns">
+      <button id="unlockSkip" class="btn" type="button">나중에</button>
+      <button id="unlockGo"   class="btn primary" type="button">잠금 해제</button>
+    </div>
+  </div>
+</div>
+
+<!-- 큰 이미지 보기 / 토스트 -->
+<div id="imgViewer" class="hidden"><img id="imgViewerImg" alt="손글씨"></div>
+<div id="toast"></div>
+
+
+<!-- ============================================================
+     암호화된 개인정보 (이메일 주소 · GAS 주소)
+     ------------------------------------------------------------
+     이 파일 안에는 알아볼 수 없는 암호문만 들어 있습니다.
+     GitHub에 공개로 올라가도 암호를 모르면 아무도 열 수 없습니다.
+     만들거나 고치려면 tools/secret_maker.html 을 여세요.
+     파일이 없어도 앱은 정상 동작합니다(설정에서 직접 입력).
+     ============================================================ -->
+<script src="./secrets.enc.js" onerror="window.WY_SECRET=null;"></script>
+
+<script>
+/* ============================================================================
+   why2korea_memo — 앱 전체 자바스크립트
+   ----------------------------------------------------------------------------
+   구역 안내
+     [1] 공용 도구 (저장소 읽기/쓰기, 날짜, 토스트)
+     [2] 화면 전환
+     [3] 입력 화면 (분류 / 버튼 활성화 제어 / 1초 임시저장 / 저장)
+     [4] 음성입력 (🎤)
+     [5] 펜입력 (✏️)
+     [6] 이메일 발송 (1단계 mailto / 2단계 Google Apps Script)
+     [7] 히스토리 + 상세 보기
+     [8] 설정
+     [9] 앱 시작
+   ============================================================================ */
+
+'use strict';
+
+/* ============================================================================
+   [1] 공용 도구
+   ============================================================================ */
+
+// localStorage에 저장할 때 쓰는 이름표들
+const KEY = {
+  records: 'why2korea_memo.records',      // 기록 목록
+  draft:   'why2korea_memo.draft',        // 작성 중인 임시 내용
+  cat:     'why2korea_memo.lastCategory', // 마지막으로 고른 분류
+  groups:  'why2korea_memo.groups',       // 수신자 이메일 그룹
+  mode:    'why2korea_memo.sendMode',     // 전송 방식
+  gasUrl:  'why2korea_memo.gasUrl'        // 구글 앱스 스크립트 주소
+};
+
+/* ── 수신자 이메일에 대하여 ─────────────────────────────────────────────────
+   ★ 이 파일에는 실제 이메일 주소를 절대 적지 않습니다. ★
+
+   이 앱은 GitHub Pages(공개 저장소)로 배포되므로, 여기에 주소를 적으면
+   전 세계 누구나 브라우저의 '페이지 소스 보기'로 읽을 수 있습니다.
+   (저장소를 Private으로 바꿔도 배포된 화면은 공개라 마찬가지입니다.)
+
+   그래서 실제 주소는 secrets.enc.js 안에 '암호화된 상태'로만 들어 있고,
+   앱을 처음 여는 기기에서 암호를 한 번 입력하면 자동으로 풀려서
+   이 기기 안에만 저장됩니다. 그 뒤로는 암호를 다시 묻지 않습니다.
+   → 아래 [1-B] 개인정보 잠금 해제 구역 참고
+   ──────────────────────────────────────────────────────────────────────── */
+
+// 그룹 이름 목록 (주소가 아니라 '틀'만 여기에 둡니다)
+const GROUP_NAMES = ['나에게', '팀장들에게', '팀장들+영업'];
+
+// 잠금이 풀리기 전에 쓰는 빈 값
+const EMPTY_GROUPS = { '나에게': [], '팀장들에게': [], '팀장들+영업': [] };
+
+const CATEGORIES = ['개인용', '집안용', '회사용'];
+
+// 짧게 쓰는 도우미
+const $  = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.prototype.slice.call(document.querySelectorAll(sel));
+
+// localStorage 읽기 (JSON). 값이 없거나 깨졌으면 기본값을 돌려줍니다.
+function load(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return fallback;
+    return JSON.parse(raw);
+  } catch (e) {
+    return fallback;
+  }
+}
+
+// localStorage 쓰기. 저장 공간이 꽉 차면 안내합니다.
+function save(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch (e) {
+    toast('저장 공간이 부족합니다. 설정 → 내보내기로 백업 후 오래된 기록을 지워주세요');
+    return false;
+  }
+}
+
+// 고유 id 만들기
+function uuid() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+const pad2 = (n) => String(n).padStart(2, '0');
+
+// 화면·메일에 쓰는 날짜 형식 → "2026-07-30 14:32"
+function fmtWhen(d) {
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) +
+         ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
+
+// 데이터에 저장하는 날짜 형식 → "2026-07-30T14:32:00+09:00"
+function toLocalISO(d) {
+  const off = -d.getTimezoneOffset();                 // 한국은 +540분
+  const sign = off >= 0 ? '+' : '-';
+  const abs = Math.abs(off);
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) +
+         'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds()) +
+         sign + pad2(Math.floor(abs / 60)) + ':' + pad2(abs % 60);
+}
+
+// 본문 첫 줄(제목이 비었을 때 대신 씁니다)
+function firstLine(text) {
+  const line = (text || '').split('\n').find((l) => l.trim() !== '') || '';
+  const t = line.trim();
+  return t.length > 40 ? t.slice(0, 40) + '…' : t;
+}
+
+// 짧은 알림 메시지
+let toastTimer = null;
+function toast(message) {
+  const el = $('#toast');
+  el.textContent = message;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+// 기록 목록 읽기/쓰기
+const getRecords = () => load(KEY.records, []);
+const setRecords = (list) => save(KEY.records, list);
+
+/* 이 기기에 저장하지 않기로 한 경우, 앱을 켜 둔 동안만 여기에 담아 둡니다.
+   (앱을 완전히 닫으면 사라지고 다음에 다시 암호를 묻습니다) */
+let memoryOnly = null;      // { groups, gasUrl, mode } 또는 null
+
+// 수신자 그룹 읽기 (잠금 해제 전이면 빈 목록)
+function getGroups() {
+  const g = memoryOnly ? memoryOnly.groups : load(KEY.groups, null);
+  if (!g) return JSON.parse(JSON.stringify(EMPTY_GROUPS));
+  // 그룹 이름이 하나라도 빠져 있으면 빈 목록으로 메꿔줍니다
+  GROUP_NAMES.forEach((name) => {
+    if (!Array.isArray(g[name])) g[name] = [];
+  });
+  return g;
+}
+
+// 전송 방식 / GAS 주소 읽기 (기기 저장 안 함 모드도 함께 처리)
+function getSendMode() {
+  return memoryOnly && memoryOnly.mode ? memoryOnly.mode : load(KEY.mode, 'mailto');
+}
+function getGasUrl() {
+  const u = memoryOnly && memoryOnly.gasUrl ? memoryOnly.gasUrl : load(KEY.gasUrl, '');
+  return (u || '').trim();
+}
+
+// 개인정보(이메일)가 이 기기에 한 번이라도 채워졌는지
+function hasSecrets() {
+  const g = getGroups();
+  return GROUP_NAMES.some((n) => (g[n] || []).length > 0);
+}
+
+
+/* ============================================================================
+   [1-B] 개인정보 잠금 해제 (암호 → 복호화)
+   ----------------------------------------------------------------------------
+   왜 필요한가
+     이 앱은 공개된 GitHub 주소에 올라가 있습니다. 그래서 이메일 주소·GAS 주소를
+     코드에 그냥 적어두면 누구나 볼 수 있습니다.
+     대신 secrets.enc.js 에 '자물쇠를 채운 암호문'만 올려두고,
+     내 기기에서 암호를 한 번 입력할 때만 열리도록 했습니다.
+
+   쓰는 방식 (국제 표준 암호. 브라우저에 원래 들어 있는 기능만 씁니다)
+     · PBKDF2-SHA256 (반복 31만 회)  : 암호 → 열쇠 만들기. 무차별 대입을 아주 느리게 만듭니다
+     · AES-256-GCM                   : 실제 자물쇠. 내용을 숨기고, 위조되면 즉시 실패합니다
+
+   ※ 암호를 잊으면 복구할 방법이 없습니다. tools/secret_maker.html 로 새로 만드세요.
+   ============================================================================ */
+
+// base64 글자 → 바이트 배열
+function b64ToBytes(b64) {
+  const bin = atob(String(b64 || ''));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+// 암호(문자열) → AES 열쇠
+async function deriveKey(passphrase, saltBytes, iterations) {
+  const base = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: saltBytes, iterations: iterations, hash: 'SHA-256' },
+    base,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt']
+  );
+}
+
+/**
+ * secrets.enc.js 의 암호문을 풀어 원래 값(객체)으로 되돌립니다.
+ * 암호가 틀리면 예외가 납니다(위조 검사 실패).
+ */
+async function decryptSecrets(blob, passphrase) {
+  const key = await deriveKey(passphrase, b64ToBytes(blob.salt), blob.iter || 310000);
+  const plain = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: b64ToBytes(blob.iv) }, key, b64ToBytes(blob.data)
+  );
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+// 저장소에 올라온 암호문 (secrets.enc.js 가 넣어줍니다). 없으면 null
+function secretBlob() {
+  const b = window.WY_SECRET;
+  return (b && b.salt && b.iv && b.data) ? b : null;
+}
+
+// 이 브라우저가 암호 기능을 쓸 수 있는지 (https 또는 localhost 필요)
+function cryptoReady() {
+  return !!(window.crypto && crypto.subtle && crypto.subtle.deriveKey);
+}
+
+/**
+ * 풀어낸 값을 앱에 적용합니다.
+ * remember=true 면 이 기기에 저장해서 다음부터 암호를 묻지 않습니다.
+ */
+function applySecrets(payload, remember) {
+  const groups = {};
+  GROUP_NAMES.forEach((n) => {
+    groups[n] = Array.isArray(payload.groups && payload.groups[n]) ? payload.groups[n] : [];
+  });
+  const gasUrl = (payload.gasUrl || '').trim();
+  const mode = payload.sendMode === 'gas' ? 'gas' : (gasUrl ? 'gas' : 'mailto');
+
+  if (remember) {
+    memoryOnly = null;
+    save(KEY.groups, groups);
+    if (gasUrl) save(KEY.gasUrl, gasUrl);
+    save(KEY.mode, mode);
+  } else {
+    memoryOnly = { groups: groups, gasUrl: gasUrl, mode: mode };
+  }
+}
+
+/** 이 기기에서 개인정보를 모두 지웁니다 (다시 잠금 상태로) */
+function forgetSecrets() {
+  memoryOnly = null;
+  try {
+    localStorage.removeItem(KEY.groups);
+    localStorage.removeItem(KEY.gasUrl);
+    localStorage.removeItem(KEY.mode);
+  } catch (e) {}
+}
+
+/* ── 잠금 해제 화면 다루기 ─────────────────────────────────────────────── */
+
+let unlockBusy = false;
+
+function openUnlock(force) {
+  // 이미 풀려 있으면 (설정에서 일부러 부른 게 아니라면) 그냥 넘어갑니다
+  if (!force && hasSecrets()) return;
+
+  const modal = $('#unlockModal');
+  const note  = $('#unlockNote');
+
+  if (!secretBlob()) {
+    note.textContent = 'secrets.enc.js 가 없습니다. tools/secret_maker.html 로 먼저 만들어 올려주세요. ' +
+                       '지금은 설정 화면에서 이메일을 직접 넣어 쓸 수 있습니다.';
+    $('#unlockPass').disabled = true;
+    $('#unlockGo').disabled = true;
+  } else if (!cryptoReady()) {
+    note.textContent = '이 주소에서는 암호 해제를 쓸 수 없습니다. https 주소(GitHub Pages)나 localhost 로 열어주세요.';
+    $('#unlockPass').disabled = true;
+    $('#unlockGo').disabled = true;
+  } else {
+    note.textContent = '';
+    $('#unlockPass').disabled = false;
+    $('#unlockGo').disabled = false;
+  }
+
+  $('#unlockPass').value = '';
+  $('#unlockMsg').textContent = '';
+  modal.classList.remove('hidden');
+  setTimeout(() => { try { $('#unlockPass').focus(); } catch (e) {} }, 60);
+}
+
+function closeUnlock() {
+  $('#unlockModal').classList.add('hidden');
+  $('#unlockPass').value = '';
+}
+
+async function doUnlock() {
+  if (unlockBusy) return;
+  const blob = secretBlob();
+  if (!blob) return;
+
+  const pass = $('#unlockPass').value;
+  if (!pass) { $('#unlockMsg').textContent = '암호를 넣어주세요.'; return; }
+
+  unlockBusy = true;
+  $('#unlockGo').disabled = true;
+  $('#unlockMsg').textContent = '푸는 중… (몇 초 걸립니다)';
+
+  try {
+    const payload = await decryptSecrets(blob, pass);
+    applySecrets(payload, $('#unlockRemember').checked);
+    closeUnlock();
+    if (currentView === 'settings') fillSettings();
+    toast('개인정보를 불러왔습니다');
+  } catch (e) {
+    $('#unlockMsg').textContent = '암호가 맞지 않습니다. 다시 확인해 주세요.';
+  } finally {
+    unlockBusy = false;
+    $('#unlockGo').disabled = false;
+  }
+}
+
+
+/* ============================================================================
+   [2] 화면 전환
+   ============================================================================ */
+
+const VIEWS = { input: '#view-input', history: '#view-history', detail: '#view-detail', settings: '#view-settings' };
+let currentView = 'input';
+
+/**
+ * 화면을 바꿉니다.
+ * push=true 면 브라우저 방문 기록에 남겨서, 안드로이드 '뒤로' 버튼으로
+ * 앱이 종료되지 않고 이전 화면으로 돌아갑니다.
+ */
+function showView(name, push) {
+  Object.keys(VIEWS).forEach((k) => $(VIEWS[k]).classList.toggle('hidden', k !== name));
+  currentView = name;
+  window.scrollTo(0, 0);
+
+  if (push !== false) {
+    try { history.pushState({ view: name }, ''); } catch (e) {}
+  }
+  // 입력 화면으로 돌아오면 바로 타이핑할 수 있게 커서를 본문에 둡니다
+  if (name === 'input') focusBody();
+  if (name === 'history') renderHistory();
+  if (name === 'settings') fillSettings();
+}
+
+window.addEventListener('popstate', (e) => {
+  const name = (e.state && e.state.view) || 'input';
+  showView(name, false);
+});
+
+function focusBody() {
+  // 휴대폰은 사용자가 화면을 탭하기 전에는 키보드가 안 올라올 수 있지만,
+  // 커서는 본문에 놓이므로 탭 한 번이면 바로 입력됩니다.
+  setTimeout(() => { try { $('#inpBody').focus(); } catch (e) {} }, 50);
+}
+
+
+/* ============================================================================
+   [3] 입력 화면
+   ============================================================================ */
+
+// 지금 작성 중인 내용
+const draft = {
+  category: '개인용',
+  title: '',
+  body: '',
+  drawings: []      // 손글씨 PNG (dataURL) 목록
+};
+
+// 분류 버튼 색 반전 + 이메일 버튼 활성화 상태를 화면에 반영
+function paintCategory() {
+  $$('#catRow .cat').forEach((b) => b.classList.toggle('on', b.dataset.cat === draft.category));
+  applySendButtonRule($('#sendRow'), draft.category);
+}
+
+/**
+ * ★ 핵심 규칙 ★
+ * 개인용·집안용 → '나에게'만 활성화
+ * 회사용        → 3개 모두 활성화
+ */
+function applySendButtonRule(container, category) {
+  const isCompany = (category === '회사용');
+  container.querySelectorAll('.send').forEach((btn) => {
+    const isMe = (btn.dataset.group === '나에게');
+    btn.disabled = !(isCompany || isMe);
+  });
+}
+
+// 분류 버튼 클릭
+$('#catRow').addEventListener('click', (e) => {
+  const btn = e.target.closest('.cat');
+  if (!btn) return;
+  draft.category = btn.dataset.cat;
+  save(KEY.cat, draft.category);       // 다음에 앱을 열 때 이 분류가 기본 선택됩니다
+  paintCategory();
+  markDirty();
+});
+
+// 입력할 때마다 '변경됨' 표시 → 1초 뒤 임시저장됩니다
+let dirty = false;
+function markDirty() { dirty = true; }
+
+$('#inpTitle').addEventListener('input', () => { draft.title = $('#inpTitle').value; markDirty(); });
+$('#inpBody').addEventListener('input',  () => { draft.body  = $('#inpBody').value;  markDirty(); });
+
+// 1초마다 임시저장 (앱이 갑자기 닫혀도 다시 열면 그대로 복원)
+setInterval(() => {
+  if (!dirty) return;
+  dirty = false;
+  save(KEY.draft, draft);
+}, 1000);
+
+// 앱이 화면에서 사라질 때도 한 번 더 저장
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') save(KEY.draft, draft);
+});
+window.addEventListener('pagehide', () => save(KEY.draft, draft));
+
+// 임시저장 내용 복원
+function restoreDraft() {
+  draft.category = load(KEY.cat, '개인용');
+  if (CATEGORIES.indexOf(draft.category) === -1) draft.category = '개인용';
+
+  const d = load(KEY.draft, null);
+  if (d) {
+    if (CATEGORIES.indexOf(d.category) !== -1) draft.category = d.category;
+    draft.title = d.title || '';
+    draft.body = d.body || '';
+    draft.drawings = Array.isArray(d.drawings) ? d.drawings : [];
+  }
+  $('#inpTitle').value = draft.title;
+  $('#inpBody').value = draft.body;
+  paintCategory();
+  renderThumbs();
+}
+
+// 첨부된 손글씨 썸네일 그리기
+function renderThumbs() {
+  const box = $('#thumbs');
+  box.textContent = '';
+  draft.drawings.forEach((dataUrl, idx) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'thumb';
+
+    const img = document.createElement('img');
+    img.src = dataUrl;
+    img.addEventListener('click', () => openImage(dataUrl));
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.textContent = '×';
+    del.title = '이 손글씨 지우기';
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      draft.drawings.splice(idx, 1);
+      renderThumbs();
+      markDirty();
+    });
+
+    wrap.appendChild(img);
+    wrap.appendChild(del);
+    box.appendChild(wrap);
+  });
+}
+
+// 입력창 비우기 (저장·전송 성공 후)
+function clearInput() {
+  draft.title = '';
+  draft.body = '';
+  draft.drawings = [];
+  $('#inpTitle').value = '';
+  $('#inpBody').value = '';
+  $('#interim').textContent = '';
+  renderThumbs();
+  save(KEY.draft, draft);
+  focusBody();
+}
+
+/**
+ * 지금 입력한 내용을 기록으로 저장합니다.
+ * 반환값: 저장된 기록 객체 (내용이 비어 있으면 null)
+ */
+function saveRecord() {
+  // 손글씨 패널이 열려 있으면, '완료'를 누르지 않았어도 그린 내용을 먼저 첨부합니다
+  commitPenIfDrawing();
+
+  const title = draft.title.trim();
+  const body = draft.body;
+
+  if (!title && !body.trim() && draft.drawings.length === 0) {
+    toast('내용이 비어 있어요');
+    focusBody();
+    return null;
+  }
+
+  const now = new Date();
+  const rec = {
+    id: uuid(),
+    category: draft.category,
+    title: title || firstLine(body),          // 제목이 비면 본문 앞부분을 제목으로
+    body: body,
+    drawings: draft.drawings.slice(),
+    createdAt: toLocalISO(now),
+    updatedAt: toLocalISO(now),
+    sentTo: []
+  };
+
+  const list = getRecords();
+  list.push(rec);
+  if (!setRecords(list)) return null;         // 저장 공간 부족 시 중단
+  return rec;
+}
+
+// 저장만 하기 (메일은 보내지 않음)
+function saveOnly() {
+  const rec = saveRecord();
+  if (!rec) return;
+  clearInput();
+  toast(rec.drawings.length ? '저장했습니다 (손글씨 ' + rec.drawings.length + '장)' : '저장했습니다');
+}
+
+// 저장한 뒤 지정한 그룹에게 메일 보내기
+async function saveAndSend(group) {
+  const rec = saveRecord();
+  if (!rec) return;
+
+  const ok = await sendMail(group, rec);
+  if (ok) {
+    // 전송 이력 기록
+    const list = getRecords();
+    const found = list.find((r) => r.id === rec.id);
+    if (found) {
+      found.sentTo.push(group);
+      found.updatedAt = toLocalISO(new Date());
+      setRecords(list);
+    }
+    clearInput();
+  }
+}
+
+// 이메일 전송 버튼 3개 — 대상이 정해져 있으므로 팝업 없이 바로 보냅니다
+$('#sendRow').addEventListener('click', (e) => {
+  const btn = e.target.closest('.send');
+  if (!btn || btn.disabled) return;
+  saveAndSend(btn.dataset.group);
+});
+
+
+/* ────────────────────────────────────────────────────────────
+   [저장 및 전송] 버튼 + 확인 팝업
+   ──────────────────────────────────────────────────────────── */
+
+let confirmGroup = '나에게';    // 팝업에서 지금 선택된 수신 대상
+
+$('#btnSave').addEventListener('click', openSendConfirm);
+
+function openSendConfirm() {
+  // 손글씨 패널이 열려 있으면 먼저 첨부해서, 팝업에 정확한 정보가 뜨게 합니다
+  commitPenIfDrawing();
+
+  const headline = draft.title.trim() || firstLine(draft.body);
+  if (!headline && !draft.body.trim() && draft.drawings.length === 0) {
+    toast('내용이 비어 있어요');
+    focusBody();
+    return;
+  }
+
+  // ── 무엇을 보내는지 요약 ──
+  let summary = '[' + draft.category + '] ' + (headline || '(제목 없음)');
+  if (draft.drawings.length) summary += '\n손글씨 ' + draft.drawings.length + '장 첨부';
+  $('#cfmSummary').textContent = summary;
+
+  // ── 지금 분류에서 보낼 수 있는 대상만 목록으로 ──
+  // 개인용·집안용 → 나에게 / 회사용 → 3개 모두
+  const allowed = (draft.category === '회사용')
+    ? ['나에게', '팀장들에게', '팀장들+영업']
+    : ['나에게'];
+
+  const groups = getGroups();
+  const box = $('#cfmChoices');
+  box.textContent = '';
+  confirmGroup = allowed[0];        // 기본 선택은 가장 안전한 '나에게'
+
+  allowed.forEach((name) => {
+    const row = document.createElement('div');
+    row.className = 'choice' + (name === confirmGroup ? ' on' : '');
+
+    const mark = document.createElement('div');
+    mark.className = 'mark';
+
+    const text = document.createElement('div');
+    const nm = document.createElement('div');
+    nm.className = 'nm';
+    nm.textContent = name;
+
+    const em = document.createElement('div');
+    em.className = 'em';
+    const list = groups[name] || [];
+    em.textContent = list.length ? list.join(', ') : '수신자가 없습니다 — 설정에서 등록하세요';
+
+    text.appendChild(nm);
+    text.appendChild(em);
+    row.appendChild(mark);
+    row.appendChild(text);
+
+    // 탭하면 이 대상으로 선택
+    row.addEventListener('click', () => {
+      confirmGroup = name;
+      Array.prototype.slice.call(box.children).forEach((c) => c.classList.toggle('on', c === row));
+    });
+
+    box.appendChild(row);
+  });
+
+  // 회사용이 아니면 왜 하나뿐인지 알려줍니다
+  $('#cfmNote').textContent = (draft.category === '회사용')
+    ? '보낼 대상을 탭해서 고르세요.'
+    : '‘' + draft.category + '’ 분류는 안전을 위해 ‘나에게’로만 보낼 수 있습니다.';
+
+  $('#sendModal').classList.remove('hidden');
+  setTimeout(() => { try { $('#cfmSend').focus(); } catch (e) {} }, 30);
+}
+
+function closeSendConfirm() {
+  $('#sendModal').classList.add('hidden');
+}
+
+// 취소 — 저장도 전송도 하지 않고 닫습니다 (쓴 내용은 그대로 남아 있습니다)
+$('#cfmCancel').addEventListener('click', () => {
+  closeSendConfirm();
+  focusBody();
+});
+
+// 저장만 — 메일은 보내지 않습니다
+$('#cfmSaveOnly').addEventListener('click', () => {
+  closeSendConfirm();
+  saveOnly();
+});
+
+// 저장 및 전송
+$('#cfmSend').addEventListener('click', () => {
+  closeSendConfirm();
+  saveAndSend(confirmGroup);
+});
+
+// 팝업 바깥(어두운 배경)을 탭하면 취소
+$('#sendModal').addEventListener('click', (e) => {
+  if (e.target === $('#sendModal')) { closeSendConfirm(); focusBody(); }
+});
+
+// PC에서 Esc 키로 취소
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#sendModal').classList.contains('hidden')) {
+    closeSendConfirm();
+    focusBody();
+  }
+});
+
+
+/* ============================================================================
+   [4] 음성입력 (🎤)
+   ============================================================================ */
+
+let recognition = null;     // 음성인식 객체
+let recording = false;      // 지금 녹음 중인지
+
+// 브라우저가 음성인식을 지원하는지 확인
+function getSpeechClass() {
+  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
+// 본문 textarea의 커서 위치에 글자를 끼워 넣습니다
+function insertAtCursor(text) {
+  if (!text) return;
+  const ta = $('#inpBody');
+  const start = ta.selectionStart != null ? ta.selectionStart : ta.value.length;
+  const end = ta.selectionEnd != null ? ta.selectionEnd : ta.value.length;
+
+  const before = ta.value.slice(0, start);
+  const after = ta.value.slice(end);
+  // 앞 글자가 있고 공백이 아니면 한 칸 띄워줍니다
+  const gap = (before && !/\s$/.test(before)) ? ' ' : '';
+
+  ta.value = before + gap + text + after;
+  const caret = start + gap.length + text.length;
+  ta.setSelectionRange(caret, caret);
+
+  draft.body = ta.value;
+  markDirty();
+}
+
+// 🎤 버튼
+$('#btnMic').addEventListener('click', () => {
+  if (recording) { stopVoice(); return; }
+  startVoice();
+});
+
+function startVoice() {
+  const SR = getSpeechClass();
+
+  // ── 미지원 브라우저(아이폰 사파리 등) 처리: 앱이 깨지지 않게 안내만 ──
+  if (!SR) {
+    toast('이 브라우저는 음성인식을 지원하지 않습니다. 키보드의 마이크(받아쓰기) 버튼을 사용하세요');
+    focusBody();
+    return;
+  }
+
+  try {
+    recognition = new SR();
+  } catch (e) {
+    toast('이 브라우저는 음성인식을 지원하지 않습니다. 키보드의 마이크(받아쓰기) 버튼을 사용하세요');
+    focusBody();
+    return;
+  }
+
+  recognition.lang = 'ko-KR';
+  recognition.continuous = true;      // 계속 듣기
+  recognition.interimResults = true;  // 인식 중인 글자도 미리 받기
+
+  // 결과 도착
+  recognition.onresult = (event) => {
+    let interim = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const result = event.results[i];
+      if (result.isFinal) {
+        insertAtCursor(result[0].transcript.trim());   // 확정된 글자는 본문에 붙이기
+      } else {
+        interim += result[0].transcript;               // 아직 인식 중인 글자
+      }
+    }
+    $('#interim').textContent = interim ? '🎤 ' + interim : '';
+  };
+
+  recognition.onerror = (event) => {
+    const code = event.error;
+    if (code === 'not-allowed' || code === 'service-not-allowed') {
+      recording = false;
+      toast('마이크 권한이 필요합니다. 브라우저 설정에서 허용해주세요');
+    } else if (code === 'no-speech') {
+      // 말이 없었을 뿐이므로 무시(아래 onend에서 다시 시작됩니다)
+    } else if (code === 'network') {
+      recording = false;
+      toast('음성인식은 인터넷 연결이 필요합니다');
+    }
+    if (!recording) paintMicButton();
+  };
+
+  // 브라우저가 스스로 멈추는 일이 잦아서, 녹음 중이면 다시 시작합니다
+  recognition.onend = () => {
+    if (recording) {
+      try { recognition.start(); } catch (e) { recording = false; paintMicButton(); }
+    } else {
+      paintMicButton();
+    }
+  };
+
+  try {
+    recognition.start();
+    recording = true;
+    paintMicButton();
+    toast('듣고 있어요. 다시 누르면 정지');
+  } catch (e) {
+    recording = false;
+    paintMicButton();
+    toast('음성인식을 시작할 수 없습니다');
+  }
+}
+
+function stopVoice() {
+  recording = false;
+  try { if (recognition) recognition.stop(); } catch (e) {}
+  $('#interim').textContent = '';
+  paintMicButton();
+  toast('음성입력 정지');
+}
+
+// 녹음 중이면 버튼을 빨갛게 깜빡이게
+function paintMicButton() {
+  $('#btnMic').classList.toggle('rec', recording);
+}
+
+
+/* ============================================================================
+   [5] 펜입력 (✏️) — canvas + Pointer Events
+   ============================================================================ */
+
+const penCanvas = $('#penCanvas');
+const penCtx = penCanvas.getContext('2d');
+
+// 획(stroke)들을 좌표 비율(0~1)로 저장합니다.
+// 이렇게 하면 화면을 돌리거나 크기가 바뀌어도 다시 그려서 그림이 깨지지 않습니다.
+let strokes = [];
+let drawingNow = false;
+let currentStroke = null;
+
+// ✏️ 버튼 — 패널 열기/닫기
+$('#btnPen').addEventListener('click', () => {
+  const panel = $('#penPanel');
+  if (panel.classList.contains('hidden')) openPen();
+  else closePen();
+});
+
+function openPen() {
+  strokes = [];
+  $('#penPanel').classList.remove('hidden');
+  // 본문 입력창을 작게 줄여서 패널 버튼이 가려지지 않게 합니다 (CSS의 .pen-open)
+  $('#inputPad').classList.add('pen-open');
+  // 패널이 화면에 나타난 뒤에 캔버스 크기를 계산해야 정확합니다
+  requestAnimationFrame(() => { resizePenCanvas(); });
+}
+
+function closePen() {
+  $('#penPanel').classList.add('hidden');
+  $('#inputPad').classList.remove('pen-open');
+  strokes = [];
+  focusBody();
+}
+
+// 캔버스 해상도 맞추기 (devicePixelRatio 처리 → 고해상도 화면에서도 선이 선명)
+function resizePenCanvas() {
+  const rect = penCanvas.getBoundingClientRect();
+  if (rect.width < 1 || rect.height < 1) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  penCanvas.width = Math.round(rect.width * dpr);
+  penCanvas.height = Math.round(rect.height * dpr);
+  redrawPen();
+}
+
+// 저장된 획들을 처음부터 다시 그립니다
+function redrawPen() {
+  const w = penCanvas.width, h = penCanvas.height;
+
+  penCtx.fillStyle = '#ffffff';        // 흰 종이 (메일에 넣어도 잘 보이게)
+  penCtx.fillRect(0, 0, w, h);
+
+  penCtx.strokeStyle = '#111111';      // 검은 잉크
+  penCtx.fillStyle = '#111111';
+  penCtx.lineCap = 'round';
+  penCtx.lineJoin = 'round';
+
+  const baseWidth = Math.max(1.5, Math.min(w, h) * 0.007);
+
+  strokes.forEach((stroke) => {
+    if (stroke.length === 1) {         // 점 하나만 찍은 경우
+      penCtx.beginPath();
+      penCtx.arc(stroke[0].x * w, stroke[0].y * h, baseWidth, 0, Math.PI * 2);
+      penCtx.fill();
+      return;
+    }
+    for (let i = 1; i < stroke.length; i++) {
+      const a = stroke[i - 1], b = stroke[i];
+      // 필압(pressure)이 있으면 굵기에 반영, 없으면 고정 굵기
+      const pressure = (b.p && b.p > 0) ? b.p : 0.55;
+      penCtx.lineWidth = baseWidth * (0.5 + pressure * 2.2);
+      penCtx.beginPath();
+      penCtx.moveTo(a.x * w, a.y * h);
+      penCtx.lineTo(b.x * w, b.y * h);
+      penCtx.stroke();
+    }
+  });
+}
+
+// 화면 회전/크기 변경 시 다시 그리기
+window.addEventListener('resize', () => {
+  if (!$('#penPanel').classList.contains('hidden')) resizePenCanvas();
+});
+window.addEventListener('orientationchange', () => {
+  setTimeout(() => { if (!$('#penPanel').classList.contains('hidden')) resizePenCanvas(); }, 250);
+});
+
+// 화면 좌표 → 캔버스 안에서의 비율(0~1) 좌표로 바꿉니다
+function penPoint(event) {
+  const rect = penCanvas.getBoundingClientRect();
+  return {
+    x: (event.clientX - rect.left) / rect.width,
+    y: (event.clientY - rect.top) / rect.height,
+    p: (typeof event.pressure === 'number' && event.pressure > 0 && event.pressure !== 0.5) ? event.pressure : 0
+    // 참고: 손가락/마우스는 pressure가 0 또는 0.5로 고정되어 들어옵니다 → 고정 굵기로 처리
+  };
+}
+
+penCanvas.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  penCanvas.setPointerCapture(e.pointerId);   // 캔버스 밖으로 나가도 계속 추적
+  drawingNow = true;
+  currentStroke = [penPoint(e)];
+  strokes.push(currentStroke);
+  redrawPen();
+});
+
+penCanvas.addEventListener('pointermove', (e) => {
+  if (!drawingNow) return;
+  e.preventDefault();
+
+  // 빠르게 그을 때 중간 좌표까지 받아오면 선이 매끄러워집니다
+  const events = (e.getCoalescedEvents && e.getCoalescedEvents().length) ? e.getCoalescedEvents() : [e];
+  events.forEach((ev) => currentStroke.push(penPoint(ev)));
+  redrawPen();
+});
+
+function endStroke(e) {
+  if (!drawingNow) return;
+  drawingNow = false;
+  currentStroke = null;
+  try { penCanvas.releasePointerCapture(e.pointerId); } catch (err) {}
+}
+penCanvas.addEventListener('pointerup', endStroke);
+penCanvas.addEventListener('pointercancel', endStroke);
+penCanvas.addEventListener('pointerleave', endStroke);
+
+// 되돌리기 / 전체 지우기 / 취소 / 완료
+$('#penUndo').addEventListener('click', () => {
+  if (!strokes.length) { toast('되돌릴 것이 없습니다'); return; }
+  strokes.pop();
+  redrawPen();
+});
+
+$('#penClear').addEventListener('click', () => {
+  strokes = [];
+  redrawPen();
+});
+
+$('#penCancel').addEventListener('click', () => {
+  closePen();
+  toast('손글씨 취소');
+});
+
+$('#penDone').addEventListener('click', () => {
+  if (!strokes.length) { toast('아무것도 그리지 않았습니다'); return; }
+  commitPen();
+  const count = draft.drawings.length;
+  closePen();
+  toast('손글씨 ' + count + '장 첨부됨');
+});
+
+/**
+ * 지금 그린 손글씨를 PNG로 만들어 작성 중인 기록에 첨부합니다.
+ * 반환값: 첨부했으면 true
+ */
+function commitPen() {
+  if (!strokes.length) return false;
+
+  // 저장 공간을 아끼려고 가로 900px로 줄여서 PNG로 만듭니다
+  draft.drawings.push(exportPenPng(900));
+  renderThumbs();
+  markDirty();
+  save(KEY.draft, draft);
+  return true;
+}
+
+/**
+ * 손글씨 패널을 열어둔 채로 [저장]이나 이메일 버튼을 눌렀을 때를 위한 처리.
+ * '완료'를 누르지 않았어도 그린 내용을 잃지 않고 자동으로 첨부합니다.
+ */
+function commitPenIfDrawing() {
+  if ($('#penPanel').classList.contains('hidden')) return false;
+  const attached = commitPen();
+  closePen();
+  return attached;
+}
+
+// 캔버스를 PNG dataURL로 만듭니다 (한 기록에 여러 장 가능)
+function exportPenPng(maxWidth) {
+  const scale = Math.min(1, maxWidth / penCanvas.width);
+  const out = document.createElement('canvas');
+  out.width = Math.round(penCanvas.width * scale);
+  out.height = Math.round(penCanvas.height * scale);
+
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.drawImage(penCanvas, 0, 0, out.width, out.height);
+  return out.toDataURL('image/png');
+}
+
+// 손글씨 크게 보기
+function openImage(dataUrl) {
+  $('#imgViewerImg').src = dataUrl;
+  $('#imgViewer').classList.remove('hidden');
+}
+$('#imgViewer').addEventListener('click', () => $('#imgViewer').classList.add('hidden'));
+
+
+/* ============================================================================
+   [6] 이메일 발송
+   ----------------------------------------------------------------------------
+   1단계: mailto — 기본 메일앱을 열어줍니다 (서버 필요 없음)
+   2단계: Google Apps Script — 실제 자동 발송 + 손글씨 첨부 + 드라이브/시트 저장
+          GAS 주소가 없거나 실패하면 자동으로 1단계로 돌아갑니다(폴백)
+   ============================================================================ */
+
+/**
+ * 메일 제목·본문을 만듭니다.
+ *   제목: [개인용] 2026-07-30 14:32 — (제목 또는 본문 첫 줄)
+ *   본문: (본문) + 구분선 + 분류/기록 시각
+ */
+function buildMail(rec, forGas) {
+  const when = fmtWhen(new Date(rec.createdAt));
+  const head = (rec.title || '').trim() || firstLine(rec.body) || '(내용 없음)';
+
+  const subject = '[' + rec.category + '] ' + when + ' — ' + head;
+
+  let body = (rec.body || '');
+  body += '\n\n---\n';
+  body += '분류: ' + rec.category + '\n';
+  body += '기록 시각: ' + when;
+
+  const count = (rec.drawings || []).length;
+  if (count > 0) {
+    // mailto는 파일 첨부가 불가능하므로 안내 문구를 넣습니다
+    body += forGas
+      ? '\n손글씨 이미지 ' + count + '장 첨부'
+      : '\n손글씨 이미지 ' + count + '장 — 앱 히스토리에서 확인';
+  }
+  return { subject: subject, body: body };
+}
+
+/**
+ * 이 기록을 지정한 그룹에게 보냅니다.
+ * 반환값: 보냈으면 true
+ */
+async function sendMail(groupName, rec) {
+  const groups = getGroups();
+  const to = (groups[groupName] || []).filter((a) => a && a.indexOf('@') > 0);
+
+  if (!to.length) {
+    if (secretBlob() && !hasSecrets()) {
+      toast('먼저 개인정보 잠금을 해제해 주세요');
+      openUnlock(true);
+    } else {
+      toast('"' + groupName + '" 수신자가 없습니다. 설정에서 이메일을 넣어주세요');
+    }
+    return false;
+  }
+
+  const mode = getSendMode();
+  const gasUrl = getGasUrl();
+
+  // ── 2단계: 직접 발송 ──
+  if (mode === 'gas' && gasUrl) {
+    toast('발송 중…');
+    const result = await sendByGas(gasUrl, to, rec, groupName);
+    if (result.ok) {
+      toast(groupName + '에게 발송 완료');
+      return true;
+    }
+    // 실패하면 메일앱으로 폴백
+    toast('직접 발송 실패(' + result.error + ') → 메일앱을 엽니다');
+  }
+
+  // ── 1단계: mailto ──
+  sendByMailto(to, rec);
+  toast(groupName + ' 메일앱 열기');
+  return true;
+}
+
+/** 1단계: mailto 링크로 기본 메일앱 열기 */
+function sendByMailto(to, rec) {
+  const mail = buildMail(rec, false);
+  const url = 'mailto:' + to.join(',') +
+              '?subject=' + encodeURIComponent(mail.subject) +
+              '&body=' + encodeURIComponent(mail.body);
+  window.location.href = url;
+}
+
+/**
+ * 2단계: Google Apps Script로 POST
+ * CORS(브라우저 보안) 문제를 피하려고 Content-Type을 text/plain으로 보냅니다.
+ * → GAS 쪽에서 JSON.parse 로 읽습니다.
+ */
+async function sendByGas(gasUrl, to, rec, groupName) {
+  const mail = buildMail(rec, true);
+
+  const payload = {
+    id: rec.id,
+    group: groupName,
+    to: to,
+    subject: mail.subject,
+    body: mail.body,
+    category: rec.category,
+    title: rec.title,
+    text: rec.body,
+    createdAt: rec.createdAt,
+    drawings: rec.drawings || []      // PNG dataURL 목록 → GAS에서 첨부파일로 변환
+  };
+
+  try {
+    const res = await fetch(gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },  // ★ 미리 확인(preflight) 요청을 피하는 핵심
+      body: JSON.stringify(payload),
+      redirect: 'follow'
+    });
+
+    const text = await res.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch (e) {}
+
+    if (data && data.ok) return { ok: true };
+    return { ok: false, error: (data && data.error) ? data.error : ('응답 오류 ' + res.status) };
+  } catch (e) {
+    return { ok: false, error: '네트워크 오류' };
+  }
+}
+
+
+/* ============================================================================
+   [7] 히스토리 + 상세 보기
+   ============================================================================ */
+
+let histFilter = '전체';
+let histQuery = '';
+
+$('#lnkHistory').addEventListener('click', (e) => { e.preventDefault(); showView('history'); });
+$('#lnkSettings').addEventListener('click', (e) => { e.preventDefault(); showView('settings'); });
+$('#histBack').addEventListener('click', () => showView('input'));
+$('#histSettings').addEventListener('click', () => showView('settings'));
+$('#detBack').addEventListener('click', () => showView('history'));
+$('#setBack').addEventListener('click', () => showView('input'));
+
+$('#inpSearch').addEventListener('input', () => {
+  histQuery = $('#inpSearch').value.trim().toLowerCase();
+  renderHistory();
+});
+
+$('#filterRow').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  histFilter = btn.dataset.f;
+  $$('#filterRow button').forEach((b) => b.classList.toggle('on', b === btn));
+  renderHistory();
+});
+
+// 목록 그리기 (최신순)
+function renderHistory() {
+  const box = $('#histList');
+  box.textContent = '';
+
+  let list = getRecords().slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+
+  if (histFilter !== '전체') list = list.filter((r) => r.category === histFilter);
+  if (histQuery) {
+    list = list.filter((r) =>
+      ((r.title || '') + ' ' + (r.body || '')).toLowerCase().indexOf(histQuery) !== -1);
+  }
+
+  if (!list.length) {
+    const p = document.createElement('div');
+    p.className = 'empty';
+    p.textContent = getRecords().length ? '조건에 맞는 기록이 없습니다' : '아직 기록이 없습니다';
+    box.appendChild(p);
+    return;
+  }
+
+  list.forEach((rec) => box.appendChild(buildHistoryItem(rec)));
+}
+
+// 목록의 한 칸 만들기
+function buildHistoryItem(rec) {
+  const item = document.createElement('div');
+  item.className = 'item';
+
+  // 날짜/시간 + 분류 배지 + 전송 여부
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+
+  const when = document.createElement('span');
+  when.textContent = fmtWhen(new Date(rec.createdAt));
+
+  const badge = document.createElement('span');
+  badge.className = 'badge ' + rec.category;
+  badge.textContent = rec.category;
+
+  meta.appendChild(when);
+  meta.appendChild(badge);
+
+  if (rec.sentTo && rec.sentTo.length) {
+    const sent = document.createElement('span');
+    sent.className = 'badge sent';
+    // 같은 그룹에 여러 번 보냈으면 중복을 지워서 표시
+    sent.textContent = '✓ ' + Array.from(new Set(rec.sentTo)).join(', ');
+    meta.appendChild(sent);
+  }
+  item.appendChild(meta);
+
+  // 제목
+  const ttl = document.createElement('div');
+  ttl.className = 'ttl';
+  ttl.textContent = rec.title || firstLine(rec.body) || '(제목 없음)';
+  item.appendChild(ttl);
+
+  // 본문 미리보기
+  if (rec.body && rec.body.trim()) {
+    const prev = document.createElement('div');
+    prev.className = 'prev';
+    prev.textContent = rec.body;
+    item.appendChild(prev);
+  }
+
+  // 손글씨 썸네일
+  if (rec.drawings && rec.drawings.length) {
+    const ims = document.createElement('div');
+    ims.className = 'ims';
+    rec.drawings.slice(0, 3).forEach((d) => {
+      const img = document.createElement('img');
+      img.src = d;
+      ims.appendChild(img);
+    });
+    if (rec.drawings.length > 3) {
+      const more = document.createElement('span');
+      more.className = 'badge';
+      more.textContent = '+' + (rec.drawings.length - 3);
+      ims.appendChild(more);
+    }
+    item.appendChild(ims);
+  }
+
+  item.addEventListener('click', () => openDetail(rec.id));
+  return item;
+}
+
+// ── 상세 보기 ──
+let detailId = null;
+
+function openDetail(id) {
+  const rec = getRecords().find((r) => r.id === id);
+  if (!rec) { toast('기록을 찾을 수 없습니다'); return; }
+
+  detailId = id;
+  $('#detWhen').textContent = fmtWhen(new Date(rec.createdAt));
+  $('#detTitle').value = rec.title || '';
+  $('#detBody').value = rec.body || '';
+
+  // 분류 버튼
+  $$('#detCatRow .cat').forEach((b) => b.classList.toggle('on', b.dataset.cat === rec.category));
+  applySendButtonRule($('#detSendRow'), rec.category);
+
+  // 전송 이력
+  $('#detSent').textContent = (rec.sentTo && rec.sentTo.length)
+    ? rec.sentTo.join(' → ')
+    : '없음';
+
+  // 손글씨
+  const thumbs = $('#detThumbs');
+  thumbs.textContent = '';
+  $('#detDrawSection').classList.toggle('hidden', !(rec.drawings && rec.drawings.length));
+  (rec.drawings || []).forEach((d, idx) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'thumb';
+
+    const img = document.createElement('img');
+    img.src = d;
+    img.addEventListener('click', () => openImage(d));
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.textContent = '×';
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const list = getRecords();
+      const found = list.find((r) => r.id === detailId);
+      if (!found) return;
+      found.drawings.splice(idx, 1);
+      found.updatedAt = toLocalISO(new Date());
+      setRecords(list);
+      openDetail(detailId);
+      toast('손글씨 1장 삭제');
+    });
+
+    wrap.appendChild(img);
+    wrap.appendChild(del);
+    thumbs.appendChild(wrap);
+  });
+
+  showView('detail');
+}
+
+// 상세: 분류 바꾸기 (전송 버튼 상태도 즉시 따라 바뀜)
+$('#detCatRow').addEventListener('click', (e) => {
+  const btn = e.target.closest('.cat');
+  if (!btn) return;
+  $$('#detCatRow .cat').forEach((b) => b.classList.toggle('on', b === btn));
+  applySendButtonRule($('#detSendRow'), btn.dataset.cat);
+});
+
+// 상세: 수정 저장
+$('#detSave').addEventListener('click', () => {
+  const list = getRecords();
+  const rec = list.find((r) => r.id === detailId);
+  if (!rec) return;
+
+  const onBtn = $('#detCatRow .cat.on');
+  rec.category = onBtn ? onBtn.dataset.cat : rec.category;
+  rec.title = $('#detTitle').value.trim() || firstLine($('#detBody').value);
+  rec.body = $('#detBody').value;
+  rec.updatedAt = toLocalISO(new Date());
+
+  if (setRecords(list)) toast('수정했습니다');
+});
+
+// 상세: 삭제
+$('#detDelete').addEventListener('click', () => {
+  if (!confirm('이 기록을 삭제할까요? 되돌릴 수 없습니다.')) return;
+  const list = getRecords().filter((r) => r.id !== detailId);
+  setRecords(list);
+  toast('삭제했습니다');
+  showView('history');
+});
+
+// 상세: 다시 이메일 전송
+$('#detSendRow').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.send');
+  if (!btn || btn.disabled) return;
+
+  const list = getRecords();
+  const rec = list.find((r) => r.id === detailId);
+  if (!rec) return;
+
+  const ok = await sendMail(btn.dataset.group, rec);
+  if (ok) {
+    rec.sentTo.push(btn.dataset.group);
+    rec.updatedAt = toLocalISO(new Date());
+    setRecords(list);
+    $('#detSent').textContent = rec.sentTo.join(' → ');
+  }
+});
+
+
+/* ============================================================================
+   [8] 설정
+   ============================================================================ */
+
+// 설정 화면을 열 때 현재 값 채우기
+function fillSettings() {
+  const g = getGroups();
+  $('#grpMe').value    = (g['나에게'] || []).join('\n');
+  $('#grpLeads').value = (g['팀장들에게'] || []).join('\n');
+  $('#grpAll').value   = (g['팀장들+영업'] || []).join('\n');
+
+  const mode = getSendMode();
+  $$('input[name="sendmode"]').forEach((r) => { r.checked = (r.value === mode); });
+  $('#inpGasUrl').value = getGasUrl();
+
+  // 잠금 상태 안내
+  let status;
+  if (!hasSecrets())      status = '🔒 잠김 — 아직 개인정보를 불러오지 않았습니다.';
+  else if (memoryOnly)    status = '🔓 열림 — 이 기기에 저장하지 않는 모드입니다. 앱을 닫으면 다시 잠깁니다.';
+  else                    status = '🔓 열림 — 이 기기에 저장되어 있어 다시 묻지 않습니다.';
+  if (!secretBlob())      status += ' (secrets.enc.js 없음 — 아래에서 직접 입력해도 됩니다)';
+  $('#lockStatus').textContent = status;
+
+  // 저장 용량 안내
+  const records = getRecords();
+  let bytes = 0;
+  try { bytes = new Blob([localStorage.getItem(KEY.records) || '']).size; } catch (e) {}
+  $('#statInfo').textContent = '기록 ' + records.length + '개 · 약 ' + Math.round(bytes / 1024) + 'KB 사용 중';
+}
+
+// 여러 줄 텍스트 → 이메일 배열 (줄바꿈·콤마·세미콜론·공백 모두 구분자로 인정)
+function parseEmails(text) {
+  return (text || '')
+    .split(/[\n,;\s]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.indexOf('@') > 0);
+}
+
+// 수신자 저장
+$('#grpSave').addEventListener('click', () => {
+  const g = {
+    '나에게': parseEmails($('#grpMe').value),
+    '팀장들에게': parseEmails($('#grpLeads').value),
+    '팀장들+영업': parseEmails($('#grpAll').value)
+  };
+  if (memoryOnly) {
+    memoryOnly.groups = g;                 // 기기에 저장하지 않는 모드 → 앱을 켜 둔 동안만
+    toast('저장했습니다 (앱을 닫으면 되돌아갑니다)');
+  } else {
+    save(KEY.groups, g);
+    toast('수신자 이메일을 저장했습니다');
+  }
+  fillSettings();
+});
+
+// 암호 파일에 들어 있는 원래 값으로 되돌리기
+$('#grpReset').addEventListener('click', () => {
+  if (!secretBlob()) { toast('secrets.enc.js 가 없어 되돌릴 값이 없습니다'); return; }
+  openUnlock(true);
+});
+
+// 개인정보 잠금 — 불러오기 / 지우기
+$('#btnUnlock').addEventListener('click', () => openUnlock(true));
+
+$('#btnForget').addEventListener('click', () => {
+  if (!confirm('이 기기에서 이메일 주소와 GAS 주소를 지울까요?\n(기록은 지워지지 않습니다. 다음에 암호로 다시 불러올 수 있습니다)')) return;
+  forgetSecrets();
+  fillSettings();
+  toast('이 기기에서 개인정보를 지웠습니다');
+});
+
+// 전송 방식 + GAS 주소 저장
+$('#modeSave').addEventListener('click', () => {
+  const checked = $$('input[name="sendmode"]').find((r) => r.checked);
+  const mode = checked ? checked.value : 'mailto';
+  const url = $('#inpGasUrl').value.trim();
+
+  if (mode === 'gas' && !url) {
+    toast('직접 발송을 쓰려면 GAS 웹앱 URL을 넣어주세요');
+    return;
+  }
+  if (memoryOnly) {
+    memoryOnly.mode = mode;
+    memoryOnly.gasUrl = url;
+    toast('저장했습니다 (앱을 닫으면 되돌아갑니다)');
+  } else {
+    save(KEY.mode, mode);
+    save(KEY.gasUrl, url);
+    toast('전송 설정을 저장했습니다');
+  }
+});
+
+// 잠금 해제 팝업 버튼들
+$('#unlockGo').addEventListener('click', doUnlock);
+$('#unlockSkip').addEventListener('click', closeUnlock);
+$('#unlockPass').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); doUnlock(); }
+});
+
+// GAS 연결 테스트 (실제 메일을 보내지 않고 응답만 확인)
+$('#gasTest').addEventListener('click', async () => {
+  const url = $('#inpGasUrl').value.trim();
+  if (!url) { toast('먼저 GAS 웹앱 URL을 넣어주세요'); return; }
+
+  toast('연결 확인 중…');
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ ping: true }),
+      redirect: 'follow'
+    });
+    const text = await res.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch (e) {}
+
+    if (data && data.ok) toast('연결 성공! 직접 발송을 쓸 수 있습니다');
+    else toast('응답을 이해할 수 없습니다. URL이 /exec 로 끝나는지 확인하세요');
+  } catch (e) {
+    toast('연결 실패. URL과 배포 권한(모든 사용자)을 확인하세요');
+  }
+});
+
+// JSON 내보내기
+$('#btnExport').addEventListener('click', () => {
+  const data = {
+    app: 'why2korea_memo',
+    version: 1,
+    exportedAt: toLocalISO(new Date()),
+    records: getRecords(),
+    groups: getGroups(),
+    settings: { sendMode: getSendMode(), gasUrl: getGasUrl() }
+  };
+
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const now = new Date();
+  const name = 'why2korea_memo_' + now.getFullYear() + pad2(now.getMonth() + 1) + pad2(now.getDate()) +
+               '_' + pad2(now.getHours()) + pad2(now.getMinutes()) + '.json';
+
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  toast('내보냈습니다: ' + name);
+});
+
+// JSON 가져오기 (기존 기록은 지우지 않고 합칩니다)
+$('#btnImport').addEventListener('click', () => $('#fileImport').click());
+
+$('#fileImport').addEventListener('change', (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      const incoming = Array.isArray(data.records) ? data.records : [];
+
+      const list = getRecords();
+      const seen = {};
+      list.forEach((r) => { seen[r.id] = true; });
+
+      let added = 0;
+      incoming.forEach((r) => {
+        if (!r || !r.id || seen[r.id]) return;      // 이미 있는 기록은 건너뜀
+        list.push({
+          id: r.id,
+          category: CATEGORIES.indexOf(r.category) !== -1 ? r.category : '개인용',
+          title: r.title || '',
+          body: r.body || '',
+          drawings: Array.isArray(r.drawings) ? r.drawings : [],
+          createdAt: r.createdAt || toLocalISO(new Date()),
+          updatedAt: r.updatedAt || r.createdAt || toLocalISO(new Date()),
+          sentTo: Array.isArray(r.sentTo) ? r.sentTo : []
+        });
+        seen[r.id] = true;
+        added++;
+      });
+
+      if (setRecords(list)) {
+        // 수신자 목록도 있으면 함께 가져올지 물어봅니다
+        if (data.groups && confirm('수신자 이메일 설정도 함께 가져올까요?')) save(KEY.groups, data.groups);
+        fillSettings();
+        toast('기록 ' + added + '개를 가져왔습니다');
+      }
+    } catch (err) {
+      toast('파일을 읽을 수 없습니다. 내보낸 JSON 파일인지 확인하세요');
+    }
+    e.target.value = '';   // 같은 파일을 다시 고를 수 있게 초기화
+  };
+  reader.readAsText(file);
+});
+
+// 기록 전체 삭제
+$('#btnWipe').addEventListener('click', () => {
+  if (!confirm('모든 기록을 삭제할까요? 되돌릴 수 없습니다.')) return;
+  if (!confirm('정말 삭제합니다. 백업(내보내기)은 하셨나요?')) return;
+  setRecords([]);
+  fillSettings();
+  toast('모든 기록을 삭제했습니다');
+});
+
+
+/* ============================================================================
+   [9] 앱 시작
+   ============================================================================ */
+
+function initApp() {
+  restoreDraft();                                  // 임시저장 내용 복원
+  try { history.replaceState({ view: 'input' }, ''); } catch (e) {}
+  showView('input', false);                        // 입력 화면부터
+  focusBody();                                     // 본문에 커서
+
+  // 음성인식을 지원하지 않는 브라우저면 🎤 버튼을 살짝 흐리게 (누르면 안내가 뜹니다)
+  if (!getSpeechClass()) $('#btnMic').style.opacity = '0.55';
+
+  // 개인정보(이메일)가 아직 없는 기기라면 암호를 한 번 물어봅니다.
+  // 한 번 풀고 나면 이 창은 다시 뜨지 않습니다.
+  if (secretBlob() && !hasSecrets()) {
+    setTimeout(() => openUnlock(false), 400);
+  }
+
+  // 서비스워커 등록 (오프라인 지원). https 또는 localhost 에서만 동작합니다.
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    });
+  }
+}
+
+initApp();
+</script>
+</body>
+</html>
