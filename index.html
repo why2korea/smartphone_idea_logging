@@ -113,6 +113,20 @@ textarea.body{ flex:1 1 auto; min-height:90px; resize:none; line-height:1.5; }
 .interim:empty{ display:none; }
 
 /* ============================================================
+   [CSS 4-2] 기록 시각 고르기 (기본은 오늘/지금, 지난 날짜도 선택 가능)
+   ============================================================ */
+.whenrow{ display:flex; gap:6px; flex:0 0 auto; align-items:stretch; }
+.whenrow .field{
+  flex:1 1 auto; min-width:0; min-height:44px;
+  padding:8px 10px; font-size:15px; color-scheme:dark;   /* 안드로이드 달력 팝업도 어둡게 */
+}
+.whenrow .btn{ flex:0 0 auto; min-height:44px; padding:0 12px; font-size:14px; }
+/* 오늘이 아닌 날짜를 고르면 노란 테두리로 눈에 띄게 */
+.whenrow.past .field{ border-color:var(--accent); }
+.whenhint{ flex:0 0 auto; font-size:12px; color:var(--accent); padding:0 2px; }
+.whenhint:empty{ display:none; }
+
+/* ============================================================
    [CSS 5] 버튼들
    ============================================================ */
 .btn{
@@ -194,6 +208,14 @@ textarea.body{ flex:1 1 auto; min-height:90px; resize:none; line-height:1.5; }
 .item .ims{ display:flex; gap:4px; }
 .item .ims img{ height:40px; border-radius:6px; border:1px solid var(--line); background:#fff; }
 .empty{ text-align:center; color:var(--sub); padding:40px 10px; font-size:15px; }
+
+/* 날짜 구분줄 — 목록을 날짜순으로 묶어서 보여줍니다 (스크롤해도 위에 붙어 있음) */
+.daysep{
+  position:sticky; top:0; z-index:1;
+  background:var(--bg); color:var(--sub);
+  font-size:12px; font-weight:700;
+  padding:6px 2px 5px; border-bottom:1px solid var(--line);
+}
 
 /* ============================================================
    [CSS 8] 설정 / 상세 화면
@@ -280,7 +302,15 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
       <button class="cat" type="button" data-cat="회사용">회사용</button>
     </div>
 
-    <!-- 3. 제목 (선택 입력) -->
+    <!-- 3. 기록 시각 (기본은 오늘 날짜·지금 시간, 지난 날짜도 고를 수 있습니다) -->
+    <div class="whenrow" id="whenRow">
+      <input id="inpDate" class="field" type="date" aria-label="기록 날짜">
+      <input id="inpTime" class="field" type="time" aria-label="기록 시간">
+      <button id="btnNow" class="btn small" type="button">지금</button>
+    </div>
+    <div id="whenHint" class="whenhint"></div>
+
+    <!-- 4. 제목 (선택 입력) -->
     <input id="inpTitle" class="field" type="text" maxlength="120"
            placeholder="제목 (비워두면 본문 첫 줄이 제목)">
 
@@ -295,7 +325,7 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
       </div>
     </section>
 
-    <!-- 4. 본문 (앱을 켜면 여기에 자동 포커스) -->
+    <!-- 5. 본문 (앱을 켜면 여기에 자동 포커스) -->
     <textarea id="inpBody" class="field body" placeholder="떠오른 생각을 바로 적으세요…"></textarea>
 
     <!-- 음성인식 중인 글자 미리보기(회색) -->
@@ -304,17 +334,17 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
     <!-- 첨부된 손글씨 썸네일 -->
     <div id="thumbs" class="thumbs"></div>
 
-    <!-- 5. 저장 및 전송 버튼 (누르면 수신 대상 확인 팝업이 뜹니다) -->
+    <!-- 6. 저장 및 전송 버튼 (누르면 수신 대상 확인 팝업이 뜹니다) -->
     <button id="btnSave" class="btn big primary" type="button">저장 및 전송</button>
 
-    <!-- 6. 이메일 전송 버튼 3개 -->
+    <!-- 7. 이메일 전송 버튼 3개 -->
     <div class="sendrow" id="sendRow">
       <button class="btn send" type="button" data-group="나에게">나에게</button>
       <button class="btn send" type="button" data-group="팀장들에게">팀장들에게</button>
       <button class="btn send" type="button" data-group="팀장들+영업">팀장들+영업</button>
     </div>
 
-    <!-- 7. 하단 링크 -->
+    <!-- 8. 하단 링크 -->
     <nav class="foot">
       <a href="#history" id="lnkHistory">히스토리</a>
       <span class="dot">·</span>
@@ -367,6 +397,15 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
         <button class="cat" type="button" data-cat="집안용">집안용</button>
         <button class="cat" type="button" data-cat="회사용">회사용</button>
       </div>
+    </div>
+
+    <div class="section">
+      <h3>기록 시각</h3>
+      <div class="whenrow" id="detWhenRow">
+        <input id="detDate" class="field" type="date" aria-label="기록 날짜">
+        <input id="detTime" class="field" type="time" aria-label="기록 시간">
+      </div>
+      <p class="help">날짜를 바꾸면 히스토리에서도 그 날짜 자리로 옮겨집니다. (아래 '수정 저장'을 눌러야 반영됩니다)</p>
     </div>
 
     <div class="section">
@@ -672,6 +711,58 @@ function toLocalISO(d) {
          sign + pad2(Math.floor(abs / 60)) + ':' + pad2(abs % 60);
 }
 
+const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
+
+// 날짜만 뽑은 열쇠말 → "2026-07-30" (히스토리 날짜 묶음에 씁니다)
+function dayKey(d) {
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+
+// 히스토리 날짜 구분줄 문구 → "2026-07-30 (목) · 오늘"
+function fmtDayLabel(d) {
+  const today = new Date();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  const key = dayKey(d);
+
+  let tag = '';
+  if (key === dayKey(today)) tag = ' · 오늘';
+  else if (key === dayKey(yesterday)) tag = ' · 어제';
+
+  return key + ' (' + WEEKDAY[d.getDay()] + ')' + tag;
+}
+
+// 시:분만 → "14:32"
+function fmtHm(d) {
+  return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
+
+/* ── 날짜/시간 입력칸(<input type="date">, <input type="time">) 다루기 ──
+   기록 시각은 기본이 '오늘 지금'이지만, 지난 날짜로도 남길 수 있습니다. */
+
+// 입력칸 두 개에 날짜와 시간을 채워 넣습니다
+function fillWhenInputs(dateEl, timeEl, d) {
+  dateEl.value = dayKey(d);
+  timeEl.value = fmtHm(d);
+}
+
+// 입력칸 두 개를 읽어서 Date로 만듭니다 (비었거나 이상하면 fallback)
+function readWhenInputs(dateEl, timeEl, fallback) {
+  const base = fallback || new Date();
+  const ymd = (dateEl.value || '').split('-').map(Number);
+  if (ymd.length !== 3 || !ymd[0]) return base;
+
+  const hm = (timeEl.value || '').split(':').map(Number);
+  const d = new Date(ymd[0], ymd[1] - 1, ymd[2],
+                     hm.length >= 2 ? hm[0] : 0, hm.length >= 2 ? hm[1] : 0, 0, 0);
+  return isNaN(d.getTime()) ? base : d;
+}
+
+// 기록의 시각 (예전 기록에도 안전하게 동작)
+function recWhen(rec) {
+  const d = new Date(rec.createdAt);
+  return isNaN(d.getTime()) ? new Date(0) : d;
+}
+
 // 본문 첫 줄(제목이 비었을 때 대신 씁니다)
 function firstLine(text) {
   const line = (text || '').split('\n').find((l) => l.trim() !== '') || '';
@@ -928,8 +1019,55 @@ const draft = {
   category: '개인용',
   title: '',
   body: '',
-  drawings: []      // 손글씨 PNG (dataURL) 목록
+  drawings: [],     // 손글씨 PNG (dataURL) 목록
+  when: '',         // 기록 시각 (비어 있으면 '지금')
+  whenManual: false // 사용자가 날짜/시간을 직접 골랐는지
 };
+
+/* ── 기록 시각 고르기 ─────────────────────────────────────────────────────
+   앱을 켜거나 저장을 마치면 항상 '오늘 날짜 · 지금 시간'으로 되돌아갑니다.
+   지난 날짜를 남기고 싶을 때만 날짜칸을 눌러 달력에서 고르면 됩니다.
+   ──────────────────────────────────────────────────────────────────────── */
+
+// 입력화면의 날짜/시간칸을 이 시각으로 맞춥니다
+function setWhen(d, manual) {
+  fillWhenInputs($('#inpDate'), $('#inpTime'), d);
+  draft.when = toLocalISO(d);
+  draft.whenManual = !!manual;
+  paintWhenHint();
+}
+
+// 지금 고른 시각을 읽습니다
+function getWhen() {
+  return readWhenInputs($('#inpDate'), $('#inpTime'), new Date());
+}
+
+// 오늘이 아닌 날짜를 고르면 노란 테두리 + 안내문으로 알려줍니다
+function paintWhenHint() {
+  const d = getWhen();
+  const isToday = (dayKey(d) === dayKey(new Date()));
+  $('#whenRow').classList.toggle('past', !isToday);
+  $('#whenHint').textContent = isToday ? '' : '⏪ ' + fmtDayLabel(d) + ' 로 기록됩니다';
+}
+
+// 날짜·시간을 직접 고쳤을 때
+function onWhenChanged() {
+  const d = getWhen();
+  fillWhenInputs($('#inpDate'), $('#inpTime'), d);   // 칸을 비워두면 오늘·지금으로 다시 채웁니다
+  draft.when = toLocalISO(d);
+  draft.whenManual = true;
+  paintWhenHint();
+  markDirty();
+}
+$('#inpDate').addEventListener('change', onWhenChanged);
+$('#inpTime').addEventListener('change', onWhenChanged);
+
+// '지금' 버튼 — 오늘 날짜·현재 시간으로 되돌립니다
+$('#btnNow').addEventListener('click', () => {
+  setWhen(new Date(), false);
+  markDirty();
+  toast('오늘 · 지금 시각으로 되돌렸습니다');
+});
 
 // 분류 버튼 색 반전 + 이메일 버튼 활성화 상태를 화면에 반영
 function paintCategory() {
@@ -965,7 +1103,12 @@ let dirty = false;
 function markDirty() { dirty = true; }
 
 $('#inpTitle').addEventListener('input', () => { draft.title = $('#inpTitle').value; markDirty(); });
-$('#inpBody').addEventListener('input',  () => { draft.body  = $('#inpBody').value;  markDirty(); });
+$('#inpBody').addEventListener('input',  () => {
+  draft.body = $('#inpBody').value;
+  // 녹음 중에 손으로 고쳤다면, 지금 커서 자리부터 다시 받아쓰게 합니다
+  if (recording) resetVoiceAnchor();
+  markDirty();
+});
 
 // 1초마다 임시저장 (앱이 갑자기 닫혀도 다시 열면 그대로 복원)
 setInterval(() => {
@@ -994,6 +1137,12 @@ function restoreDraft() {
   }
   $('#inpTitle').value = draft.title;
   $('#inpBody').value = draft.body;
+
+  // 기록 시각: 직접 고른 날짜만 되살리고, 그렇지 않으면 항상 '지금'으로
+  const kept = (d && d.whenManual && d.when) ? new Date(d.when) : null;
+  if (kept && !isNaN(kept.getTime())) setWhen(kept, true);
+  else setWhen(new Date(), false);
+
   paintCategory();
   renderThumbs();
 }
@@ -1035,6 +1184,8 @@ function clearInput() {
   $('#inpTitle').value = '';
   $('#inpBody').value = '';
   $('#interim').textContent = '';
+  setWhen(new Date(), false);   // 다음 기록은 다시 '오늘 · 지금'부터
+  resetVoiceAnchor();           // 음성입력 중이어도 지워진 본문에 맞춰 다시 잡습니다
   renderThumbs();
   save(KEY.draft, draft);
   focusBody();
@@ -1058,13 +1209,16 @@ function saveRecord() {
   }
 
   const now = new Date();
+  const when = getWhen();                     // 사용자가 고른 기록 시각 (기본은 지금)
+
   const rec = {
     id: uuid(),
     category: draft.category,
     title: title || firstLine(body),          // 제목이 비면 본문 앞부분을 제목으로
     body: body,
     drawings: draft.drawings.slice(),
-    createdAt: toLocalISO(now),
+    createdAt: toLocalISO(when),              // 기록 시각 (지난 날짜 선택 가능) — 정렬 기준
+    savedAt: toLocalISO(now),                 // 실제로 저장 버튼을 누른 시각
     updatedAt: toLocalISO(now),
     sentTo: []
   };
@@ -1229,32 +1383,87 @@ document.addEventListener('keydown', (e) => {
    [4] 음성입력 (🎤)
    ============================================================================ */
 
+/* ── 같은 말이 여러 번 들어가지 않게 하는 방법 ─────────────────────────────
+   예전에는 "확정된 조각이 올 때마다 본문 뒤에 붙이기"였습니다.
+   그런데 안드로이드 크롬/삼성 인터넷은
+     · 이미 준 조각을 다음 결과에 또 넣어서 보내거나(results가 계속 쌓임)
+     · 인식 중인 말을 "오후에" → "오후에 봉구" → "오후에 봉구 엔진오일" 처럼
+       점점 길어지는 형태로 여러 번 확정해서 보냅니다.
+   그래서 붙이기만 하면 같은 말이 계속 반복되어 쌓였습니다.
+
+   이제는 '붙이기'가 아니라 '다시 그리기'로 바꿨습니다.
+     ① 녹음을 시작한 커서 자리를 기억해 두고(앞부분 head / 뒷부분 tail)
+     ② 결과가 올 때마다 지금까지 확정된 조각 전체를 처음부터 다시 계산해서
+     ③ head + 말한 내용 + tail 로 본문을 통째로 다시 씁니다.
+   여기에 '앞 글자가 겹치는 조각은 긴 쪽만 남기기'(mergeSegments)를 더해서
+   위의 두 가지 버그를 모두 걸러냅니다.
+   ──────────────────────────────────────────────────────────────────────── */
+
 let recognition = null;     // 음성인식 객체
 let recording = false;      // 지금 녹음 중인지
+
+let voiceHead = '';         // 녹음 시작 시점, 커서 앞의 본문
+let voiceTail = '';         // 녹음 시작 시점, 커서 뒤의 본문
+let voiceSegs = [];         // 앞선 인식 세션에서 확정된 말 조각들
+let voiceSessionSegs = [];  // 지금 세션에서 확정된 말 조각들
+let voiceBaseIndex = 0;     // 이 번호 앞의 결과는 이미 반영이 끝난 것으로 봅니다
+let voiceResultCount = 0;   // 마지막으로 받은 결과 개수
 
 // 브라우저가 음성인식을 지원하는지 확인
 function getSpeechClass() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
-// 본문 textarea의 커서 위치에 글자를 끼워 넣습니다
-function insertAtCursor(text) {
-  if (!text) return;
+/* 말 조각 목록에서 중복을 걸러냅니다.
+   - 똑같은 조각이 연달아 오면 하나만 남기고
+   - 앞부분이 겹치면("오후에" / "오후에 봉구") 긴 쪽만 남깁니다 */
+function mergeSegments(segs) {
+  const out = [];
+  segs.forEach((raw) => {
+    const t = String(raw == null ? '' : raw).trim();
+    if (!t) return;
+
+    const prev = out.length ? out[out.length - 1] : '';
+    if (prev && (t.indexOf(prev) === 0 || prev.indexOf(t) === 0)) {
+      out[out.length - 1] = (t.length >= prev.length) ? t : prev;   // 긴 쪽만 남김
+      return;
+    }
+    out.push(t);
+  });
+  return out;
+}
+
+// 지금 커서 자리를 '음성이 들어갈 자리'로 다시 잡습니다
+function resetVoiceAnchor() {
   const ta = $('#inpBody');
   const start = ta.selectionStart != null ? ta.selectionStart : ta.value.length;
-  const end = ta.selectionEnd != null ? ta.selectionEnd : ta.value.length;
+  const end = ta.selectionEnd != null ? ta.selectionEnd : start;
 
-  const before = ta.value.slice(0, start);
-  const after = ta.value.slice(end);
-  // 앞 글자가 있고 공백이 아니면 한 칸 띄워줍니다
-  const gap = (before && !/\s$/.test(before)) ? ' ' : '';
+  voiceHead = ta.value.slice(0, start);
+  voiceTail = ta.value.slice(end);
+  voiceSegs = [];
+  voiceSessionSegs = [];
+  voiceBaseIndex = voiceResultCount;   // 지금까지 받은 결과는 없던 일로
+}
 
-  ta.value = before + gap + text + after;
-  const caret = start + gap.length + text.length;
-  ta.setSelectionRange(caret, caret);
+// head + 말한 내용 + tail 로 본문을 다시 씁니다
+function paintVoiceText(interim) {
+  const spoken = mergeSegments(voiceSegs.concat(voiceSessionSegs)).join(' ');
+  // 앞뒤 글자와 말이 붙어버리지 않게 한 칸씩 띄웁니다
+  const gap    = (spoken && voiceHead && !/\s$/.test(voiceHead)) ? ' ' : '';
+  const gapEnd = (spoken && voiceTail && !/^\s/.test(voiceTail)) ? ' ' : '';
+  const next = voiceHead + gap + spoken + gapEnd + voiceTail;
 
-  draft.body = ta.value;
-  markDirty();
+  const ta = $('#inpBody');
+  if (ta.value !== next) {
+    ta.value = next;
+    const caret = (voiceHead + gap + spoken).length;
+    try { ta.setSelectionRange(caret, caret); } catch (e) {}
+    ta.scrollTop = ta.scrollHeight;
+    draft.body = next;
+    markDirty();
+  }
+  $('#interim').textContent = interim ? '🎤 ' + interim : '';
 }
 
 // 🎤 버튼
@@ -1284,19 +1493,26 @@ function startVoice() {
   recognition.lang = 'ko-KR';
   recognition.continuous = true;      // 계속 듣기
   recognition.interimResults = true;  // 인식 중인 글자도 미리 받기
+  recognition.maxAlternatives = 1;    // 후보를 하나만 받아서 헷갈릴 일을 줄입니다
 
-  // 결과 도착
+  /* 결과 도착 — event.resultIndex 부터가 아니라 '처음부터 전부' 다시 읽습니다.
+     (resultIndex 를 믿으면 기기에 따라 같은 말이 두 번 들어갑니다) */
   recognition.onresult = (event) => {
-    let interim = '';
-    for (let i = event.resultIndex; i < event.results.length; i++) {
+    voiceResultCount = event.results.length;
+
+    const finals = [];
+    const interims = [];
+
+    for (let i = voiceBaseIndex; i < event.results.length; i++) {
       const result = event.results[i];
-      if (result.isFinal) {
-        insertAtCursor(result[0].transcript.trim());   // 확정된 글자는 본문에 붙이기
-      } else {
-        interim += result[0].transcript;               // 아직 인식 중인 글자
-      }
+      const text = (result && result[0]) ? result[0].transcript : '';
+      if (!text) continue;
+      if (result.isFinal) finals.push(text);
+      else interims.push(text);
     }
-    $('#interim').textContent = interim ? '🎤 ' + interim : '';
+
+    voiceSessionSegs = finals;                            // 붙이지 않고 통째로 교체
+    paintVoiceText(mergeSegments(interims).join(' '));
   };
 
   recognition.onerror = (event) => {
@@ -1313,8 +1529,15 @@ function startVoice() {
     if (!recording) paintMicButton();
   };
 
-  // 브라우저가 스스로 멈추는 일이 잦아서, 녹음 중이면 다시 시작합니다
+  /* 브라우저가 스스로 멈추는 일이 잦아서, 녹음 중이면 다시 시작합니다.
+     다시 시작하면 결과 목록이 처음부터 새로 시작되므로,
+     지금까지 확정된 말은 voiceSegs 로 옮겨서 보관합니다. */
   recognition.onend = () => {
+    voiceSegs = mergeSegments(voiceSegs.concat(voiceSessionSegs));
+    voiceSessionSegs = [];
+    voiceBaseIndex = 0;
+    voiceResultCount = 0;
+
     if (recording) {
       try { recognition.start(); } catch (e) { recording = false; paintMicButton(); }
     } else {
@@ -1323,6 +1546,9 @@ function startVoice() {
   };
 
   try {
+    resetVoiceAnchor();       // 지금 커서 자리부터 받아쓰기 시작
+    voiceBaseIndex = 0;
+    voiceResultCount = 0;
     recognition.start();
     recording = true;
     paintMicButton();
@@ -1337,6 +1563,8 @@ function startVoice() {
 function stopVoice() {
   recording = false;
   try { if (recognition) recognition.stop(); } catch (e) {}
+  voiceSegs = mergeSegments(voiceSegs.concat(voiceSessionSegs));
+  voiceSessionSegs = [];
   $('#interim').textContent = '';
   paintMicButton();
   toast('음성입력 정지');
@@ -1564,7 +1792,7 @@ $('#imgViewer').addEventListener('click', () => $('#imgViewer').classList.add('h
  *   본문: (본문) + 구분선 + 분류/기록 시각
  */
 function buildMail(rec, forGas) {
-  const when = fmtWhen(new Date(rec.createdAt));
+  const when = fmtWhen(recWhen(rec));
   const head = (rec.title || '').trim() || firstLine(rec.body) || '(내용 없음)';
 
   const subject = '[' + rec.category + '] ' + when + ' — ' + head;
@@ -1700,12 +1928,18 @@ $('#filterRow').addEventListener('click', (e) => {
   renderHistory();
 });
 
-// 목록 그리기 (최신순)
+/* 목록 그리기 — '입력한 순서'가 아니라 '기록 시각(날짜)' 기준 최신순입니다.
+   지난 날짜로 남긴 메모도 그 날짜 자리에 끼어 들어갑니다. */
 function renderHistory() {
   const box = $('#histList');
   box.textContent = '';
 
-  let list = getRecords().slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  let list = getRecords().slice().sort((a, b) => {
+    const byWhen = recWhen(b).getTime() - recWhen(a).getTime();
+    if (byWhen !== 0) return byWhen;
+    // 같은 시각이면 나중에 저장한 것이 위로
+    return String(b.savedAt || b.createdAt).localeCompare(String(a.savedAt || a.createdAt));
+  });
 
   if (histFilter !== '전체') list = list.filter((r) => r.category === histFilter);
   if (histQuery) {
@@ -1721,7 +1955,20 @@ function renderHistory() {
     return;
   }
 
-  list.forEach((rec) => box.appendChild(buildHistoryItem(rec)));
+  // 날짜가 바뀔 때마다 구분줄을 하나 넣습니다
+  let lastDay = '';
+  list.forEach((rec) => {
+    const d = recWhen(rec);
+    const key = dayKey(d);
+    if (key !== lastDay) {
+      lastDay = key;
+      const sep = document.createElement('div');
+      sep.className = 'daysep';
+      sep.textContent = fmtDayLabel(d);
+      box.appendChild(sep);
+    }
+    box.appendChild(buildHistoryItem(rec));
+  });
 }
 
 // 목록의 한 칸 만들기
@@ -1733,8 +1980,9 @@ function buildHistoryItem(rec) {
   const meta = document.createElement('div');
   meta.className = 'meta';
 
+  // 날짜는 위 구분줄에 있으므로 여기서는 시:분만 보여줍니다
   const when = document.createElement('span');
-  when.textContent = fmtWhen(new Date(rec.createdAt));
+  when.textContent = fmtHm(recWhen(rec));
 
   const badge = document.createElement('span');
   badge.className = 'badge ' + rec.category;
@@ -1796,7 +2044,8 @@ function openDetail(id) {
   if (!rec) { toast('기록을 찾을 수 없습니다'); return; }
 
   detailId = id;
-  $('#detWhen').textContent = fmtWhen(new Date(rec.createdAt));
+  $('#detWhen').textContent = fmtWhen(recWhen(rec));
+  fillWhenInputs($('#detDate'), $('#detTime'), recWhen(rec));
   $('#detTitle').value = rec.title || '';
   $('#detBody').value = rec.body || '';
 
@@ -1862,9 +2111,17 @@ $('#detSave').addEventListener('click', () => {
   rec.category = onBtn ? onBtn.dataset.cat : rec.category;
   rec.title = $('#detTitle').value.trim() || firstLine($('#detBody').value);
   rec.body = $('#detBody').value;
+
+  // 기록 시각도 고칠 수 있습니다 (히스토리 정렬 위치가 함께 바뀝니다)
+  const when = readWhenInputs($('#detDate'), $('#detTime'), recWhen(rec));
+  rec.createdAt = toLocalISO(when);
+  if (!rec.savedAt) rec.savedAt = rec.updatedAt || rec.createdAt;
   rec.updatedAt = toLocalISO(new Date());
 
-  if (setRecords(list)) toast('수정했습니다');
+  if (setRecords(list)) {
+    $('#detWhen').textContent = fmtWhen(when);
+    toast('수정했습니다');
+  }
 });
 
 // 상세: 삭제
