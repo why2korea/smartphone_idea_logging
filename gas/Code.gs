@@ -5,7 +5,7 @@
  *
  *  이 파일이 하는 일
  *   1) 앱에서 보낸 기록(JSON)을 받습니다               → doPost(e)
- *   2) 실제로 이메일을 발송합니다 (손글씨 PNG는 첨부파일) → MailApp.sendEmail()
+ *   2) 실제로 이메일을 발송합니다 (손글씨 PNG + 앱에서 붙인 첨부파일) → MailApp.sendEmail()
  *   3) 같은 내용을 구글 드라이브 폴더에 저장합니다        → 텍스트 + 이미지
  *   4) 구글 스프레드시트에 한 줄씩 로그를 남깁니다
  *
@@ -138,6 +138,7 @@ function handleRecord(data) {
   var text     = data.text || '';
   var group    = data.group || '';
   var drawings = data.drawings || [];          // PNG dataURL 목록
+  var files    = data.files || [];             // 첨부파일 {name,type,size,data} 목록
   var when     = data.createdAt ? new Date(data.createdAt) : new Date();
 
   // ── 손글씨 dataURL → 첨부파일(Blob)로 변환 ──
@@ -146,6 +147,15 @@ function handleRecord(data) {
   for (var i = 0; i < drawings.length; i++) {
     var blob = dataUrlToBlob(drawings[i], stamp + '_손글씨' + (i + 1) + '.png');
     if (blob) attachments.push(blob);
+  }
+
+  // ── 앱에서 붙인 첨부파일 → Blob으로 변환 (원래 파일 이름을 그대로 씁니다) ──
+  var fileCount = 0;
+  for (var j = 0; j < files.length; j++) {
+    var f = files[j] || {};
+    var fname = safeFileName(f.name || ('첨부' + (j + 1)));
+    var fblob = dataUrlToBlob(f.data, stamp + '_' + fname);
+    if (fblob) { attachments.push(fblob); fileCount++; }
   }
 
   // ── (1) 이메일 발송 ──
@@ -173,7 +183,8 @@ function handleRecord(data) {
   try {
     appendLog({
       when: when, category: category, title: title, text: text,
-      group: group, to: to, count: attachments.length, driveUrl: driveUrl, id: data.id || ''
+      group: group, to: to, count: attachments.length - fileCount,
+      fileCount: fileCount, driveUrl: driveUrl, id: data.id || ''
     });
   } catch (err) {
     // 로그 실패는 무시합니다
@@ -183,6 +194,7 @@ function handleRecord(data) {
     ok: true,
     sentTo: to,
     attachments: attachments.length,
+    files: fileCount,
     driveUrl: driveUrl,
     remainingQuota: MailApp.getRemainingDailyQuota()
   };
@@ -263,7 +275,8 @@ function appendLog(rec) {
     rec.count,                         // 손글씨 장수
     rec.driveUrl,                      // 드라이브 링크
     new Date(),                        // 발송 시각
-    rec.id                             // 앱 안에서의 기록 id
+    rec.id,                            // 앱 안에서의 기록 id
+    rec.fileCount || 0                 // 첨부파일 개수 (★ 맨 끝에 추가 — 기존 열 순서를 건드리지 않습니다)
   ]);
 }
 
@@ -281,8 +294,8 @@ function getLogSheet() {
   var sheet = ss.getSheets()[0];
 
   // 제목 줄 만들기
-  sheet.appendRow(['기록 시각', '분류', '제목', '본문', '전송 그룹', '수신자', '손글씨(장)', '드라이브 링크', '발송 시각', 'id']);
-  sheet.getRange(1, 1, 1, 10).setFontWeight('bold');
+  sheet.appendRow(['기록 시각', '분류', '제목', '본문', '전송 그룹', '수신자', '손글씨(장)', '드라이브 링크', '발송 시각', 'id', '첨부파일(개)']);
+  sheet.getRange(1, 1, 1, 11).setFontWeight('bold');
   sheet.setFrozenRows(1);
   sheet.setColumnWidth(3, 220);
   sheet.setColumnWidth(4, 380);
@@ -322,6 +335,22 @@ function sanitize(s) {
   return String(s).replace(/[\\\/:*?"<>|\n\r\t]/g, ' ').trim().slice(0, 50) || '무제';
 }
 
+/**
+ * 첨부파일 이름 정리 — 위 sanitize 와 같지만 '확장자를 잃지 않게' 합니다.
+ *   '아주긴이름............pdf' → '아주긴이름(50자까지).pdf'
+ */
+function safeFileName(name) {
+  var clean = String(name || '').replace(/[\\\/:*?"<>|\n\r\t]/g, ' ').trim();
+  if (!clean) return '첨부파일';
+
+  var dot = clean.lastIndexOf('.');
+  var ext = (dot > 0 && clean.length - dot <= 12) ? clean.slice(dot) : '';
+  var base = ext ? clean.slice(0, dot) : clean;
+
+  if (base.length > 50) base = base.slice(0, 50);
+  return (base || '첨부파일') + ext;
+}
+
 function firstLine(text) {
   var lines = String(text || '').split('\n');
   for (var i = 0; i < lines.length; i++) {
@@ -357,7 +386,8 @@ function testSendToMe() {
     title: 'GAS 연결 테스트',
     text: 'why2korea_memo GAS 테스트입니다.',
     createdAt: new Date().toISOString(),
-    drawings: []
+    drawings: [],
+    files: []
   });
 
   Logger.log(JSON.stringify(result, null, 2));
