@@ -9,7 +9,7 @@
       그러면 옛 캐시를 버리고 새 파일을 내려받습니다.
    ============================================================ */
 
-const CACHE_NAME = 'why2korea-memo-v4';
+const CACHE_NAME = 'why2korea-memo-v5';
 
 // 미리 저장해 둘 파일 목록
 const PRECACHE_FILES = [

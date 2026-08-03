@@ -184,6 +184,39 @@ textarea.body{ flex:1 1 auto; min-height:90px; resize:none; line-height:1.5; }
 }
 
 /* ============================================================
+   [CSS 6-2] 첨부파일 — 제목칸과 본문칸 사이
+   (기존 디자인 톤 그대로: --card 배경 / --line 테두리 / 12px 둥근 모서리)
+   ============================================================ */
+.attachrow{ display:flex; gap:8px; align-items:center; flex:0 0 auto; }
+.attachrow .btn{ flex:0 0 auto; }
+.attachcnt{ font-size:13px; color:var(--sub); }
+
+/* 첨부 목록 — 너무 길어지면 이 안에서만 스크롤됩니다 */
+.files{ display:flex; flex-direction:column; gap:6px; flex:0 0 auto; max-height:150px; overflow-y:auto; }
+.files:empty{ display:none; }
+.file{
+  display:flex; align-items:center; gap:8px;
+  background:var(--card); border:1px solid var(--line); border-radius:12px; padding:6px 8px;
+}
+/* 왼쪽 아이콘칸 — 이미지 파일이면 썸네일이 들어갑니다 */
+.file .ico{
+  width:38px; height:38px; flex:0 0 auto; border-radius:8px;
+  border:1px solid var(--line); background:var(--bg); overflow:hidden;
+  display:flex; align-items:center; justify-content:center; font-size:18px;
+}
+.file .ico img{ width:100%; height:100%; object-fit:cover; display:block; cursor:pointer; }
+.file .nm{
+  flex:1 1 auto; min-width:0; font-size:14px; color:var(--text); text-decoration:none;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.file .sz{ flex:0 0 auto; font-size:12px; color:var(--sub); }
+.file .del{
+  flex:0 0 auto; width:30px; height:30px; border-radius:15px;
+  background:transparent; color:var(--danger); border:1px solid var(--line);
+  font-size:15px; line-height:1; cursor:pointer;
+}
+
+/* ============================================================
    [CSS 7] 히스토리 화면
    ============================================================ */
 .searchrow{ display:flex; gap:8px; flex:0 0 auto; }
@@ -314,6 +347,15 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
     <input id="inpTitle" class="field" type="text" maxlength="120"
            placeholder="제목 (비워두면 본문 첫 줄이 제목)">
 
+    <!-- 4-2. 첨부파일 (제목칸과 본문칸 사이)
+         모든 형식 허용 · 여러 개 선택 가능 · 아래 목록에서 하나씩 지울 수 있습니다 -->
+    <div class="attachrow">
+      <button id="btnAttach" class="btn small" type="button">📎 첨부파일</button>
+      <span id="attachCount" class="attachcnt"></span>
+      <input id="fileAttach" type="file" multiple class="hidden">
+    </div>
+    <div id="fileList" class="files"></div>
+
     <!-- 손글씨 패널 (✏️ 버튼을 누르면 본문 위에 펼쳐짐) -->
     <section id="penPanel" class="pen hidden">
       <canvas id="penCanvas"></canvas>
@@ -418,6 +460,12 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
     <div class="section" id="detDrawSection">
       <h3>손글씨</h3>
       <div id="detThumbs" class="thumbs"></div>
+    </div>
+
+    <!-- 첨부파일 (첨부가 있는 기록에서만 보입니다) -->
+    <div class="section" id="detFileSection">
+      <h3>첨부파일</h3>
+      <div id="detFiles" class="files"></div>
     </div>
 
     <div class="section">
@@ -770,6 +818,72 @@ function firstLine(text) {
   return t.length > 40 ? t.slice(0, 40) + '…' : t;
 }
 
+/* ── 첨부파일 도우미 ────────────────────────────────────────────────────────
+   첨부파일 한 개는 이런 모양으로 보관합니다 (손글씨 drawings 와 같은 방식).
+     { name:'견적서.pdf', type:'application/pdf', size:12345,
+       data:'data:application/pdf;base64,....' }
+   ──────────────────────────────────────────────────────────────────────── */
+
+// 첨부파일 한 개의 최대 크기 (브라우저 저장 공간이 넉넉하지 않아 5MB로 제한합니다)
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+
+// 이미지 파일인지 (썸네일 미리보기 대상)
+function isImageFile(f) {
+  return String((f && f.type) || '').indexOf('image/') === 0;
+}
+
+// 이미지가 아닌 파일에 쓰는 아이콘 글자
+function fileIcon(f) {
+  const t = String((f && f.type) || '');
+  if (t.indexOf('video/') === 0) return '🎬';
+  if (t.indexOf('audio/') === 0) return '🎵';
+  if (t.indexOf('text/') === 0) return '📃';
+  if (t.indexOf('pdf') !== -1) return '📕';
+  if (t.indexOf('sheet') !== -1 || t.indexOf('excel') !== -1) return '📊';
+  if (t.indexOf('word') !== -1 || t.indexOf('document') !== -1) return '📄';
+  if (t.indexOf('zip') !== -1 || t.indexOf('compressed') !== -1) return '🗜️';
+  return '📎';
+}
+
+// 파일 크기 보기 좋게 → "1.2MB"
+function fmtSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return n + 'B';
+  if (n < 1024 * 1024) return Math.round(n / 1024) + 'KB';
+  return (n / (1024 * 1024)).toFixed(1) + 'MB';
+}
+
+// 고른 파일을 dataURL(글자)로 읽습니다 — 이래야 localStorage에 담을 수 있습니다
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('read'));
+    reader.readAsDataURL(file);
+  });
+}
+
+// 파일 이름을 제목으로 쓸 때 (본문 첫 줄과 같은 길이 규칙)
+function titleFromFileName(name) {
+  const t = String(name || '').trim();
+  return t.length > 40 ? t.slice(0, 40) + '…' : t;
+}
+
+/**
+ * 제목이 비었을 때 자동으로 정할 제목을 돌려줍니다.
+ *   ① 본문이 있으면 → 본문 첫 유효 줄
+ *   ② 본문이 비고 첨부파일이 있으면 → 첫 번째 첨부파일 이름
+ *   ③ 둘 다 없으면 → '' (기존 동작 그대로)
+ * ※ 사용자가 제목을 직접 넣었으면 이 함수는 아예 부르지 않습니다.
+ */
+function autoTitle(body, files) {
+  const line = firstLine(body);
+  if (line) return line;
+  const list = Array.isArray(files) ? files : [];
+  if (list.length) return titleFromFileName(list[0].name);
+  return '';
+}
+
 // 짧은 알림 메시지
 let toastTimer = null;
 function toast(message) {
@@ -1020,6 +1134,7 @@ const draft = {
   title: '',
   body: '',
   drawings: [],     // 손글씨 PNG (dataURL) 목록
+  files: [],        // 첨부파일 목록 {name,type,size,data(dataURL)}
   when: '',         // 기록 시각 (비어 있으면 '지금')
   whenManual: false // 사용자가 날짜/시간을 직접 골랐는지
 };
@@ -1134,6 +1249,7 @@ function restoreDraft() {
     draft.title = d.title || '';
     draft.body = d.body || '';
     draft.drawings = Array.isArray(d.drawings) ? d.drawings : [];
+    draft.files = Array.isArray(d.files) ? d.files : [];
   }
   $('#inpTitle').value = draft.title;
   $('#inpBody').value = draft.body;
@@ -1145,6 +1261,127 @@ function restoreDraft() {
 
   paintCategory();
   renderThumbs();
+  renderFiles();
+}
+
+/* ── 첨부파일 (📎 버튼) ────────────────────────────────────────────────────
+   왜 dataURL(글자)로 담는가
+     이 앱은 서버가 없고, 손글씨(drawings)도 이미 PNG dataURL 로
+     localStorage 에 저장하고 있습니다. 첨부파일도 같은 방식으로 담아야
+     ① 저장/복원 ② JSON 내보내기·가져오기 ③ 오프라인 열람 이 모두
+     기존 코드 그대로 동작합니다.
+   ──────────────────────────────────────────────────────────────────────── */
+
+// 📎 버튼 → 숨겨둔 파일 선택창 열기
+$('#btnAttach').addEventListener('click', () => $('#fileAttach').click());
+
+// 파일을 고르면 dataURL로 읽어서 draft.files 에 담습니다
+$('#fileAttach').addEventListener('change', async (e) => {
+  const picked = Array.prototype.slice.call(e.target.files || []);
+  e.target.value = '';                    // 같은 파일을 또 고를 수 있게 비웁니다
+  if (!picked.length) return;
+
+  const before = draft.files.slice();     // 저장 공간이 부족할 때 되돌리기 위한 사본
+  let added = 0, tooBig = 0, failed = 0;
+
+  for (let i = 0; i < picked.length; i++) {
+    const file = picked[i];
+    if (file.size > MAX_FILE_BYTES) { tooBig++; continue; }
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      draft.files.push({
+        name: file.name || '파일',
+        type: file.type || '',
+        size: file.size || 0,
+        data: dataUrl
+      });
+      added++;
+    } catch (err) {
+      failed++;
+    }
+  }
+
+  // 실제로 저장해 보고, 공간이 부족하면 방금 붙인 것을 되돌립니다
+  if (added && !save(KEY.draft, draft)) {
+    draft.files = before;
+    save(KEY.draft, draft);
+    renderFiles();
+    toast('첨부파일이 너무 커서 담지 못했습니다. 더 작은 파일을 쓰거나 오래된 기록을 정리해 주세요');
+    return;
+  }
+
+  renderFiles();
+  markDirty();
+
+  let msg = added ? '첨부 ' + added + '개 추가' : '추가된 파일이 없습니다';
+  if (tooBig) msg += ' · ' + tooBig + '개는 5MB를 넘어 제외';
+  if (failed) msg += ' · ' + failed + '개는 읽지 못함';
+  toast(msg);
+});
+
+/**
+ * 첨부파일 한 줄을 만듭니다 (입력 화면 · 상세 화면 공용).
+ *   [썸네일 또는 아이콘] [파일이름(누르면 열기/내려받기)] [크기] [×]
+ */
+function buildFileRow(f, onDelete) {
+  const row = document.createElement('div');
+  row.className = 'file';
+
+  const ico = document.createElement('div');
+  ico.className = 'ico';
+  if (isImageFile(f)) {
+    // 이미지 파일은 썸네일 미리보기 (누르면 크게 보기)
+    const img = document.createElement('img');
+    img.src = f.data;
+    img.alt = f.name || '';
+    img.addEventListener('click', () => openImage(f.data));
+    ico.appendChild(img);
+  } else {
+    ico.textContent = fileIcon(f);
+  }
+
+  // 파일 이름 — 누르면 그대로 열리거나 내려받아집니다
+  const nm = document.createElement('a');
+  nm.className = 'nm';
+  nm.href = f.data;
+  nm.download = f.name || '첨부파일';
+  nm.textContent = f.name || '첨부파일';
+  nm.title = f.name || '';
+
+  const sz = document.createElement('span');
+  sz.className = 'sz';
+  sz.textContent = fmtSize(f.size);
+
+  const del = document.createElement('button');
+  del.className = 'del';
+  del.type = 'button';
+  del.textContent = '×';
+  del.title = '이 첨부 지우기';
+  del.addEventListener('click', (e) => { e.stopPropagation(); onDelete(); });
+
+  row.appendChild(ico);
+  row.appendChild(nm);
+  row.appendChild(sz);
+  row.appendChild(del);
+  return row;
+}
+
+// 입력 화면의 첨부 목록 그리기
+function renderFiles() {
+  const box = $('#fileList');
+  box.textContent = '';
+
+  draft.files.forEach((f, idx) => {
+    box.appendChild(buildFileRow(f, () => {
+      draft.files.splice(idx, 1);
+      renderFiles();
+      markDirty();
+      save(KEY.draft, draft);
+      toast('첨부 1개 삭제');
+    }));
+  });
+
+  $('#attachCount').textContent = draft.files.length ? draft.files.length + '개 첨부됨' : '';
 }
 
 // 첨부된 손글씨 썸네일 그리기
@@ -1181,12 +1418,14 @@ function clearInput() {
   draft.title = '';
   draft.body = '';
   draft.drawings = [];
+  draft.files = [];
   $('#inpTitle').value = '';
   $('#inpBody').value = '';
   $('#interim').textContent = '';
   setWhen(new Date(), false);   // 다음 기록은 다시 '오늘 · 지금'부터
   resetVoiceAnchor();           // 음성입력 중이어도 지워진 본문에 맞춰 다시 잡습니다
   renderThumbs();
+  renderFiles();
   save(KEY.draft, draft);
   focusBody();
 }
@@ -1201,8 +1440,9 @@ function saveRecord() {
 
   const title = draft.title.trim();
   const body = draft.body;
+  const files = draft.files.slice();
 
-  if (!title && !body.trim() && draft.drawings.length === 0) {
+  if (!title && !body.trim() && draft.drawings.length === 0 && files.length === 0) {
     toast('내용이 비어 있어요');
     focusBody();
     return null;
@@ -1214,9 +1454,11 @@ function saveRecord() {
   const rec = {
     id: uuid(),
     category: draft.category,
-    title: title || firstLine(body),          // 제목이 비면 본문 앞부분을 제목으로
+    // 제목이 비면 ① 본문 첫 줄 ② 없으면 첫 첨부파일 이름 (직접 넣은 제목은 그대로 둡니다)
+    title: title || autoTitle(body, files),
     body: body,
     drawings: draft.drawings.slice(),
+    files: files,
     createdAt: toLocalISO(when),              // 기록 시각 (지난 날짜 선택 가능) — 정렬 기준
     savedAt: toLocalISO(now),                 // 실제로 저장 버튼을 누른 시각
     updatedAt: toLocalISO(now),
@@ -1233,8 +1475,11 @@ function saveRecord() {
 function saveOnly() {
   const rec = saveRecord();
   if (!rec) return;
+  const extra = [];
+  if (rec.drawings.length) extra.push('손글씨 ' + rec.drawings.length + '장');
+  if (rec.files.length) extra.push('첨부 ' + rec.files.length + '개');
   clearInput();
-  toast(rec.drawings.length ? '저장했습니다 (손글씨 ' + rec.drawings.length + '장)' : '저장했습니다');
+  toast(extra.length ? '저장했습니다 (' + extra.join(', ') + ')' : '저장했습니다');
 }
 
 // 저장한 뒤 지정한 그룹에게 메일 보내기
@@ -1276,8 +1521,8 @@ function openSendConfirm() {
   // 손글씨 패널이 열려 있으면 먼저 첨부해서, 팝업에 정확한 정보가 뜨게 합니다
   commitPenIfDrawing();
 
-  const headline = draft.title.trim() || firstLine(draft.body);
-  if (!headline && !draft.body.trim() && draft.drawings.length === 0) {
+  const headline = draft.title.trim() || autoTitle(draft.body, draft.files);
+  if (!headline && !draft.body.trim() && draft.drawings.length === 0 && draft.files.length === 0) {
     toast('내용이 비어 있어요');
     focusBody();
     return;
@@ -1286,6 +1531,7 @@ function openSendConfirm() {
   // ── 무엇을 보내는지 요약 ──
   let summary = '[' + draft.category + '] ' + (headline || '(제목 없음)');
   if (draft.drawings.length) summary += '\n손글씨 ' + draft.drawings.length + '장 첨부';
+  if (draft.files.length) summary += '\n첨부파일 ' + draft.files.length + '개';
   $('#cfmSummary').textContent = summary;
 
   // ── 지금 분류에서 보낼 수 있는 대상만 목록으로 ──
@@ -1793,7 +2039,7 @@ $('#imgViewer').addEventListener('click', () => $('#imgViewer').classList.add('h
  */
 function buildMail(rec, forGas) {
   const when = fmtWhen(recWhen(rec));
-  const head = (rec.title || '').trim() || firstLine(rec.body) || '(내용 없음)';
+  const head = (rec.title || '').trim() || autoTitle(rec.body, rec.files) || '(내용 없음)';
 
   const subject = '[' + rec.category + '] ' + when + ' — ' + head;
 
@@ -1808,6 +2054,15 @@ function buildMail(rec, forGas) {
     body += forGas
       ? '\n손글씨 이미지 ' + count + '장 첨부'
       : '\n손글씨 이미지 ' + count + '장 — 앱 히스토리에서 확인';
+  }
+
+  // 첨부파일도 같은 방식으로 안내합니다 (mailto는 파일을 붙일 수 없습니다)
+  const files = rec.files || [];
+  if (files.length) {
+    const names = files.map((f) => f.name).join(', ');
+    body += forGas
+      ? '\n첨부파일 ' + files.length + '개 첨부: ' + names
+      : '\n첨부파일 ' + files.length + '개 (' + names + ') — 앱 히스토리에서 확인';
   }
   return { subject: subject, body: body };
 }
@@ -1878,7 +2133,8 @@ async function sendByGas(gasUrl, to, rec, groupName) {
     title: rec.title,
     text: rec.body,
     createdAt: rec.createdAt,
-    drawings: rec.drawings || []      // PNG dataURL 목록 → GAS에서 첨부파일로 변환
+    drawings: rec.drawings || [],     // PNG dataURL 목록 → GAS에서 첨부파일로 변환
+    files: rec.files || []            // 첨부파일 목록 → GAS에서 원래 이름 그대로 첨부
   };
 
   try {
@@ -2003,7 +2259,7 @@ function buildHistoryItem(rec) {
   // 제목
   const ttl = document.createElement('div');
   ttl.className = 'ttl';
-  ttl.textContent = rec.title || firstLine(rec.body) || '(제목 없음)';
+  ttl.textContent = rec.title || autoTitle(rec.body, rec.files) || '(제목 없음)';
   item.appendChild(ttl);
 
   // 본문 미리보기
@@ -2090,6 +2346,25 @@ function openDetail(id) {
     thumbs.appendChild(wrap);
   });
 
+  // 첨부파일 (없으면 이 칸 자체를 숨깁니다)
+  const fbox = $('#detFiles');
+  fbox.textContent = '';
+  const files = Array.isArray(rec.files) ? rec.files : [];
+  $('#detFileSection').classList.toggle('hidden', files.length === 0);
+
+  files.forEach((f, idx) => {
+    fbox.appendChild(buildFileRow(f, () => {
+      const list = getRecords();
+      const found = list.find((r) => r.id === detailId);
+      if (!found || !Array.isArray(found.files)) return;
+      found.files.splice(idx, 1);
+      found.updatedAt = toLocalISO(new Date());
+      setRecords(list);
+      openDetail(detailId);
+      toast('첨부파일 1개 삭제');
+    }));
+  });
+
   showView('detail');
 }
 
@@ -2109,7 +2384,8 @@ $('#detSave').addEventListener('click', () => {
 
   const onBtn = $('#detCatRow .cat.on');
   rec.category = onBtn ? onBtn.dataset.cat : rec.category;
-  rec.title = $('#detTitle').value.trim() || firstLine($('#detBody').value);
+  // 제목을 비워두면 ① 본문 첫 줄 ② 없으면 첫 첨부파일 이름
+  rec.title = $('#detTitle').value.trim() || autoTitle($('#detBody').value, rec.files);
   rec.body = $('#detBody').value;
 
   // 기록 시각도 고칠 수 있습니다 (히스토리 정렬 위치가 함께 바뀝니다)
@@ -2327,6 +2603,7 @@ $('#fileImport').addEventListener('change', (e) => {
           title: r.title || '',
           body: r.body || '',
           drawings: Array.isArray(r.drawings) ? r.drawings : [],
+          files: Array.isArray(r.files) ? r.files : [],       // 첨부파일도 함께 복원
           createdAt: r.createdAt || toLocalISO(new Date()),
           updatedAt: r.updatedAt || r.createdAt || toLocalISO(new Date()),
           sentTo: Array.isArray(r.sentTo) ? r.sentTo : []
