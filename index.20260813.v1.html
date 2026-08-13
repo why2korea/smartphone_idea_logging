@@ -127,18 +127,6 @@ textarea.body{ flex:1 1 auto; min-height:90px; resize:none; line-height:1.5; }
 .whenhint:empty{ display:none; }
 
 /* ============================================================
-   [CSS 4-3] 알람 (설정한 날짜·시간이 되면 팝업으로 알려줍니다)
-   ------------------------------------------------------------
-   체크를 켜야 날짜·시간칸이 나타납니다.
-   날짜·시간칸은 위 '기록 시각' 과 똑같은 .whenrow 틀을 그대로 씁니다.
-   ============================================================ */
-.alarmbox{ flex:0 0 auto; display:flex; flex-direction:column; gap:6px; }
-.alarmbox label.radio{ min-height:44px; font-size:15px; }
-.alarmhint{ font-size:12px; color:var(--sub); padding:0 2px; line-height:1.5; }
-.alarmhint:empty{ display:none; }
-.alarmhint.warn{ color:var(--accent); }
-
-/* ============================================================
    [CSS 5] 버튼들
    ============================================================ */
 .btn{
@@ -436,19 +424,6 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
     </div>
     <div id="whenHint" class="whenhint"></div>
 
-    <!-- 3-2. 알람 (체크를 켜면 날짜·시간칸이 나타납니다)
-         설정한 시각이 되면 화면 한가운데 팝업으로 알려줍니다. -->
-    <div class="alarmbox" id="alarmBox">
-      <label class="radio">
-        <input id="chkAlarm" type="checkbox"> ⏰ 알람
-      </label>
-      <div class="whenrow hidden" id="alarmRow">
-        <input id="alarmDate" class="field" type="date" aria-label="알람 날짜">
-        <input id="alarmTime" class="field" type="time" aria-label="알람 시간">
-      </div>
-      <div id="alarmHint" class="alarmhint"></div>
-    </div>
-
     <!-- 4. 제목 (선택 입력) -->
     <input id="inpTitle" class="field" type="text" maxlength="120"
            placeholder="제목 (비워두면 본문 첫 줄이 제목)">
@@ -557,25 +532,6 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
         <input id="detTime" class="field" type="time" aria-label="기록 시간">
       </div>
       <p class="help">날짜를 바꾸면 히스토리에서도 그 날짜 자리로 옮겨집니다. (아래 '수정 저장'을 눌러야 반영됩니다)</p>
-    </div>
-
-    <!-- 알람 (입력 화면과 같은 방식입니다) -->
-    <div class="section">
-      <h3>알람</h3>
-      <div class="alarmbox">
-        <label class="radio">
-          <input id="detAlarmChk" type="checkbox"> ⏰ 알람 켜기
-        </label>
-        <div class="whenrow hidden" id="detAlarmRow">
-          <input id="detAlarmDate" class="field" type="date" aria-label="알람 날짜">
-          <input id="detAlarmTime" class="field" type="time" aria-label="알람 시간">
-        </div>
-        <div id="detAlarmHint" class="alarmhint"></div>
-      </div>
-      <p class="help">
-        알람은 <b>앱이 열려 있을 때</b> 팝업으로 알려줍니다. 앱이 꺼져 있는 동안 시각이 지났다면
-        앱을 다시 열 때 알려드립니다. (아래 '수정 저장'을 눌러야 반영됩니다)
-      </p>
     </div>
 
     <div class="section">
@@ -815,25 +771,6 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
     <div class="modalbtns">
       <button id="unlockSkip" class="btn" type="button">나중에</button>
       <button id="unlockGo"   class="btn primary" type="button">잠금 해제</button>
-    </div>
-  </div>
-</div>
-
-<!-- ============================================================
-     ⏰ 알람 팝업 — 메모에 설정해 둔 시각이 되면 뜹니다
-     [확인]을 눌러야 닫힙니다. 스누즈·자동 해제 같은 기능은 없습니다.
-     ============================================================ -->
-<div id="alarmModal" class="modal hidden">
-  <div class="sheet result warn">
-    <div class="emoji">⏰</div>
-    <h2 id="almTitle">알람</h2>
-    <p class="sub" id="almMsg"></p>
-
-    <!-- 메모 제목 · 설정한 시각 -->
-    <div id="almLines" class="reslines hidden"></div>
-
-    <div class="modalbtns">
-      <button id="almOk" class="btn primary" type="button">확인</button>
     </div>
   </div>
 </div>
@@ -1406,9 +1343,7 @@ const draft = {
   drawings: [],     // 손글씨 PNG (dataURL) 목록
   files: [],        // 첨부파일 목록 {name,type,size,data(dataURL)}
   when: '',         // 기록 시각 (비어 있으면 '지금')
-  whenManual: false,// 사용자가 날짜/시간을 직접 골랐는지
-  alarmOn: false,   // ⏰ 알람을 켰는지
-  alarmAt: ''       // ⏰ 알람 시각 (체크를 꺼도 값은 그대로 남겨 둡니다)
+  whenManual: false // 사용자가 날짜/시간을 직접 골랐는지
 };
 
 /* ── 기록 시각 고르기 ─────────────────────────────────────────────────────
@@ -1454,97 +1389,6 @@ $('#btnNow').addEventListener('click', () => {
   setWhen(new Date(), false);
   markDirty();
   toast('오늘 · 지금 시각으로 되돌렸습니다');
-});
-
-/* ── ⏰ 알람 고르기 ────────────────────────────────────────────────────────
-   체크를 켜야 날짜·시간칸이 나타납니다.
-   체크를 끄면 알람은 울리지 않지만 적어 둔 시각은 지우지 않고 그대로 둡니다.
-   (다시 켤 때 같은 시각을 또 적지 않아도 되도록)
-   ──────────────────────────────────────────────────────────────────────── */
-
-// 알람 안내문에 쓰는 날짜 형식 → "2026-08-13 (목) 14:30"
-function fmtAlarmWhen(d) {
-  return dayKey(d) + ' (' + WEEKDAY[d.getDay()] + ') ' + fmtHm(d);
-}
-
-// 알람을 처음 켰을 때 기본으로 채워 넣을 시각 = 지금부터 1시간 뒤
-function defaultAlarmDate() {
-  const d = new Date();
-  d.setSeconds(0, 0);
-  d.setHours(d.getHours() + 1);
-  return d;
-}
-
-// 기록에서 알람 정보를 안전하게 꺼냅니다 (알람이 없던 옛 기록도 오류 없이 동작)
-function alarmOf(rec) {
-  const at = (rec && typeof rec.alarmAt === 'string') ? rec.alarmAt : '';
-  const d = at ? new Date(at) : null;
-  const ok = !!(d && !isNaN(d.getTime()));
-  return {
-    on: !!(rec && rec.alarmOn) && ok,   // 켜져 있고 시각도 제대로 들어 있는가
-    at: at,
-    date: ok ? d : null,
-    fired: !!(rec && rec.alarmFiredAt)  // 이미 한 번 울렸는가
-  };
-}
-
-// 체크 상태에 맞춰 날짜·시간칸을 보이거나 숨기고 안내문을 다시 씁니다 (입력·상세 공용)
-function paintAlarmUI(chkEl, rowEl, dateEl, timeEl, hintEl) {
-  const on = chkEl.checked;
-  rowEl.classList.toggle('hidden', !on);
-  hintEl.classList.remove('warn');
-
-  if (!on) { hintEl.textContent = ''; return; }
-
-  const d = readWhenInputs(dateEl, timeEl, defaultAlarmDate());
-  if (d.getTime() <= Date.now()) {
-    hintEl.classList.add('warn');
-    hintEl.textContent = '⚠️ 이미 지난 시각입니다 — 저장하면 곧바로 알람이 울립니다';
-  } else {
-    hintEl.textContent = '⏰ ' + fmtAlarmWhen(d) + ' 에 알려드립니다';
-  }
-}
-
-// 입력 화면의 알람칸 모음
-const alarmEls = {
-  chk:  $('#chkAlarm'),
-  row:  $('#alarmRow'),
-  date: $('#alarmDate'),
-  time: $('#alarmTime'),
-  hint: $('#alarmHint')
-};
-
-// draft 에 담긴 알람 값을 입력 화면에 그립니다
-function paintDraftAlarm() {
-  alarmEls.chk.checked = !!draft.alarmOn;
-  const d = draft.alarmAt ? new Date(draft.alarmAt) : null;
-  fillWhenInputs(alarmEls.date, alarmEls.time,
-                 (d && !isNaN(d.getTime())) ? d : defaultAlarmDate());
-  paintAlarmUI(alarmEls.chk, alarmEls.row, alarmEls.date, alarmEls.time, alarmEls.hint);
-}
-
-// 입력 화면에서 고른 알람 값을 draft 에 담습니다
-function readDraftAlarm() {
-  draft.alarmOn = alarmEls.chk.checked;
-  draft.alarmAt = toLocalISO(readWhenInputs(alarmEls.date, alarmEls.time, defaultAlarmDate()));
-}
-
-alarmEls.chk.addEventListener('change', () => {
-  // 칸이 비어 있을 때만 기본 시각(1시간 뒤)을 넣습니다 — 적어 둔 시각은 덮어쓰지 않습니다
-  if (alarmEls.chk.checked && !alarmEls.date.value) {
-    fillWhenInputs(alarmEls.date, alarmEls.time, defaultAlarmDate());
-  }
-  readDraftAlarm();
-  paintAlarmUI(alarmEls.chk, alarmEls.row, alarmEls.date, alarmEls.time, alarmEls.hint);
-  markDirty();
-});
-
-[alarmEls.date, alarmEls.time].forEach((el) => {
-  el.addEventListener('change', () => {
-    readDraftAlarm();
-    paintAlarmUI(alarmEls.chk, alarmEls.row, alarmEls.date, alarmEls.time, alarmEls.hint);
-    markDirty();
-  });
 });
 
 // 분류 버튼 색 반전 + 이메일 버튼 활성화 상태를 화면에 반영
@@ -1618,9 +1462,6 @@ function restoreDraft() {
     draft.body = d.body || '';
     draft.drawings = Array.isArray(d.drawings) ? d.drawings : [];
     draft.files = Array.isArray(d.files) ? d.files : [];
-    // ⏰ 알람도 임시저장에서 함께 되살립니다
-    draft.alarmOn = !!d.alarmOn;
-    draft.alarmAt = (typeof d.alarmAt === 'string') ? d.alarmAt : '';
   }
   $('#inpTitle').value = draft.title;
   $('#inpBody').value = draft.body;
@@ -1631,7 +1472,6 @@ function restoreDraft() {
   else setWhen(new Date(), false);
 
   paintCategory();
-  paintDraftAlarm();
   renderThumbs();
   renderFiles();
 }
@@ -1795,10 +1635,6 @@ function clearInput() {
   $('#inpBody').value = '';
   $('#interim').textContent = '';
   setWhen(new Date(), false);   // 다음 기록은 다시 '오늘 · 지금'부터
-  // ⏰ 알람은 저장이 끝나면 꺼진 상태로 되돌립니다 (다음 메모에 실수로 딸려가지 않게)
-  draft.alarmOn = false;
-  draft.alarmAt = '';
-  paintDraftAlarm();
   resetVoiceAnchor();           // 음성입력 중이어도 지워진 본문에 맞춰 다시 잡습니다
   renderThumbs();
   renderFiles();
@@ -1813,8 +1649,6 @@ function clearInput() {
 function saveRecord() {
   // 손글씨 패널이 열려 있으면, '완료'를 누르지 않았어도 그린 내용을 먼저 첨부합니다
   commitPenIfDrawing();
-  // 알람칸에 방금 고른 값이 아직 draft 에 안 담겼을 수도 있으니 한 번 더 읽습니다
-  readDraftAlarm();
 
   const title = draft.title.trim();
   const body = draft.body;
@@ -1845,11 +1679,7 @@ function saveRecord() {
     updatedAt: toLocalISO(now),
     sentTo: [],
     checked: false,                           // 히스토리에서 '다시 확인했다' 표시
-    pinned: false,                            // 히스토리 맨 위에 고정
-    // ⏰ 알람 — 켜져 있고 시각이 있을 때만 울립니다. 체크를 껐어도 시각은 남겨 둡니다
-    alarmOn: !!(draft.alarmOn && draft.alarmAt),
-    alarmAt: draft.alarmAt || '',
-    alarmFiredAt: ''                          // 울린 시각 (한 번만 울리게 하는 표시)
+    pinned: false                             // 히스토리 맨 위에 고정
   };
 
   const list = getRecords();
@@ -3156,12 +2986,6 @@ function openDetail(id) {
   $('#detTitle').value = rec.title || '';
   $('#detBody').value = rec.body || '';
 
-  // ⏰ 알람 (알람이 없던 옛 기록은 '꺼짐' + 기본 시각으로 보여줍니다)
-  const alm = alarmOf(rec);
-  $('#detAlarmChk').checked = alm.on;
-  fillWhenInputs($('#detAlarmDate'), $('#detAlarmTime'), alm.date || defaultAlarmDate());
-  paintDetAlarm();
-
   // 분류 버튼
   $$('#detCatRow .cat').forEach((b) => b.classList.toggle('on', b.dataset.cat === rec.category));
   applySendButtonRule($('#detSendRow'), rec.category);
@@ -3225,23 +3049,6 @@ function openDetail(id) {
   showView('detail');
 }
 
-// 상세: ⏰ 알람칸 다시 그리기 (입력 화면과 같은 함수를 씁니다)
-function paintDetAlarm() {
-  paintAlarmUI($('#detAlarmChk'), $('#detAlarmRow'),
-               $('#detAlarmDate'), $('#detAlarmTime'), $('#detAlarmHint'));
-}
-
-// 상세: 알람 체크·날짜·시간을 건드리면 안내문을 바로 고쳐 씁니다
-//       (실제 반영은 아래 '수정 저장' 을 눌러야 됩니다)
-$('#detAlarmChk').addEventListener('change', () => {
-  if ($('#detAlarmChk').checked && !$('#detAlarmDate').value) {
-    fillWhenInputs($('#detAlarmDate'), $('#detAlarmTime'), defaultAlarmDate());
-  }
-  paintDetAlarm();
-});
-$('#detAlarmDate').addEventListener('change', paintDetAlarm);
-$('#detAlarmTime').addEventListener('change', paintDetAlarm);
-
 // 상세: 분류 바꾸기 (전송 버튼 상태도 즉시 따라 바뀜)
 $('#detCatRow').addEventListener('click', (e) => {
   const btn = e.target.closest('.cat');
@@ -3267,18 +3074,6 @@ $('#detSave').addEventListener('click', () => {
   rec.createdAt = toLocalISO(when);
   if (!rec.savedAt) rec.savedAt = rec.updatedAt || rec.createdAt;
   rec.updatedAt = toLocalISO(new Date());
-
-  /* ⏰ 알람
-     · 체크를 꺼도 적어 둔 시각(alarmAt)은 지우지 않고 그대로 남깁니다
-     · 시각을 바꾸었거나 체크를 껐다면 '이미 울렸음' 표시를 지워, 다시 울릴 수 있게 합니다 */
-  const prevAlarmAt = (typeof rec.alarmAt === 'string') ? rec.alarmAt : '';
-  const newAlarmAt = toLocalISO(readWhenInputs($('#detAlarmDate'), $('#detAlarmTime'), defaultAlarmDate()));
-  rec.alarmOn = $('#detAlarmChk').checked;
-  rec.alarmAt = newAlarmAt;
-  if (newAlarmAt !== prevAlarmAt || !rec.alarmOn) {
-    rec.alarmFiredAt = '';
-    alarmFiredIds.delete(rec.id);
-  }
 
   if (setRecords(list)) {
     $('#detWhen').textContent = fmtWhen(when);
@@ -3314,136 +3109,6 @@ $('#detSendRow').addEventListener('click', async (e) => {
     $('#detSent').textContent = rec.sentTo.join(' → ');
   }
 });
-
-
-/* ============================================================================
-   [7-B] ⏰ 알람 — 설정한 시각이 되면 팝업으로 알려줍니다
-   ----------------------------------------------------------------------------
-   ★ 어디까지 되는지 (중요)
-     · 앱이 열려 있으면 시각이 될 때 팝업이 뜹니다.
-     · 앱을 완전히 껐다면 그 사이에는 울리지 않고, 다시 열 때
-       '⏰ 지난 알람' 으로 모아서 알려드립니다.
-     · 앱이 꺼진 상태에서 울리게 하려면 브라우저 알림 권한과 푸시 서버가
-       따로 있어야 해서 이번에는 넣지 않았습니다.
-
-   ★ 한 번 울린 알람은 기록에 alarmFiredAt 을 남겨 다시 울리지 않습니다.
-     상세 화면에서 시각을 바꾸면 그 표시가 지워져 다시 울립니다.
-   ============================================================================ */
-
-const ALARM_CHECK_MS = 15000;   // 15초마다 시각이 되었는지 살펴봅니다
-
-let alarmQueue = [];            // 울릴 때가 되었는데 아직 못 보여준 알람들
-let alarmShowing = false;       // 알람 팝업이 지금 떠 있는지
-let alarmTimer = null;
-
-// 저장 공간이 꽉 차서 '울렸음' 표시를 못 남겼을 때를 대비한 이번 실행 중 기억
-const alarmFiredIds = new Set();
-
-// 다른 팝업이 떠 있으면 알람은 잠시 기다립니다 (발송 중 화면 등을 가리지 않도록)
-function otherModalOpen() {
-  return ['#sendModal', '#directModal', '#resultModal', '#unlockModal']
-    .some((sel) => !$(sel).classList.contains('hidden'));
-}
-
-// 울릴 때가 된 알람을 찾아 '울렸음' 표시를 남기고 줄을 세웁니다
-function collectDueAlarms() {
-  const list = getRecords();
-  const now = Date.now();
-  const due = [];
-  let changed = false;
-
-  list.forEach((rec) => {
-    const a = alarmOf(rec);
-    if (!a.on) return;                       // 꺼져 있거나 시각이 없는 기록
-    if (a.fired || alarmFiredIds.has(rec.id)) return;   // 이미 울린 기록
-    if (a.date.getTime() > now) return;      // 아직 시각이 안 됨
-
-    rec.alarmFiredAt = toLocalISO(new Date());
-    alarmFiredIds.add(rec.id);
-    changed = true;
-    due.push({
-      id: rec.id,
-      title: rec.title || '(제목 없음)',
-      category: rec.category || '',
-      at: a.date.getTime()
-    });
-  });
-
-  if (changed) setRecords(list);
-  return due;
-}
-
-// 줄 서 있는 알람을 하나씩 보여줍니다
-function showNextAlarm() {
-  if (alarmShowing || !alarmQueue.length) return;
-  if (otherModalOpen()) return;              // 다른 팝업이 닫히면 다음 차례에 뜹니다
-
-  const item = alarmQueue.shift();
-  alarmShowing = true;
-
-  const when = new Date(item.at);
-  const late = (Date.now() - item.at) > 90 * 1000;   // 앱이 꺼져 있는 동안 지나간 알람
-
-  $('#almTitle').textContent = late ? '⏰ 지난 알람' : '⏰ 알람';
-  $('#almMsg').textContent = late
-    ? '앱이 꺼져 있는 동안 알람 시각이 지났습니다.'
-    : '설정하신 시각이 되었습니다.';
-
-  const box = $('#almLines');
-  box.textContent = '';
-  [
-    '메모: ' + item.title,
-    item.category ? '분류: ' + item.category : '',
-    '알람 시각: ' + fmtAlarmWhen(when),
-    alarmQueue.length ? '남은 알람: ' + alarmQueue.length + '개' : ''
-  ].filter((t) => t).forEach((t) => {
-    const row = document.createElement('div');
-    row.className = 'resline';
-    row.textContent = t;
-    box.appendChild(row);
-  });
-  box.classList.remove('hidden');
-
-  $('#alarmModal').classList.remove('hidden');
-  // 확인 버튼에 미리 손을 얹어 둡니다 (PC에서 Enter 로도 닫히게)
-  setTimeout(() => { try { $('#almOk').focus(); } catch (e) {} }, 30);
-}
-
-function closeAlarm() {
-  $('#alarmModal').classList.add('hidden');
-  alarmShowing = false;
-  if (alarmQueue.length) setTimeout(showNextAlarm, 250);   // 남은 알람이 있으면 이어서
-}
-
-$('#almOk').addEventListener('click', closeAlarm);
-$('#alarmModal').addEventListener('click', (e) => {
-  if (e.target === $('#alarmModal')) closeAlarm();
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('#alarmModal').classList.contains('hidden')) closeAlarm();
-});
-
-// 시각이 되었는지 확인 → 되었으면 팝업
-function checkAlarms() {
-  const due = collectDueAlarms();
-  if (due.length) {
-    due.sort((a, b) => a.at - b.at);          // 이른 시각부터 보여줍니다
-    alarmQueue = alarmQueue.concat(due);
-  }
-  showNextAlarm();
-}
-
-// 알람 지켜보기 시작 (앱을 켤 때 한 번 + 15초마다 + 화면으로 되돌아올 때마다)
-function startAlarmWatch() {
-  checkAlarms();
-  if (alarmTimer) clearInterval(alarmTimer);
-  alarmTimer = setInterval(checkAlarms, ALARM_CHECK_MS);
-
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') checkAlarms();
-  });
-  window.addEventListener('focus', checkAlarms);
-}
 
 
 /* ============================================================================
@@ -3678,10 +3343,6 @@ function initApp() {
   if (secretBlob() && !hasSecrets()) {
     setTimeout(() => openUnlock(false), 400);
   }
-
-  // ⏰ 알람 지켜보기 시작
-  // 잠금 해제 창(위 400ms)이 먼저 뜨도록 조금 늦게 시작합니다
-  setTimeout(startAlarmWatch, 1500);
 
   // 서비스워커 등록 (오프라인 지원). https 또는 localhost 에서만 동작합니다.
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
