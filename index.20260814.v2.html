@@ -3530,9 +3530,7 @@ function startAlarmWatch() {
    ============================================================================ */
 
 const ALM_DB = 'why2korea_alarm';
-const ALM_DB_VER = 2;              // ★ sw.js 의 ALARM_DB_VER 과 반드시 같아야 합니다
 const ALM_STORE = 'alarms';
-const ALM_META = 'meta';           // 푸시 열쇠·구독정보 칸 (2026-08-14)
 const ALM_PERIODIC_TAG = 'w2k-alarm-check';
 
 let alarmSyncTimer = null;
@@ -3568,40 +3566,14 @@ function almOpenDB() {
   return new Promise((resolve, reject) => {
     if (!('indexedDB' in window)) { reject(new Error('no-idb')); return; }
     let req;
-    try { req = indexedDB.open(ALM_DB, ALM_DB_VER); } catch (e) { reject(e); return; }
+    try { req = indexedDB.open(ALM_DB, 1); } catch (e) { reject(e); return; }
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(ALM_STORE)) db.createObjectStore(ALM_STORE, { keyPath: 'id' });
-      if (!db.objectStoreNames.contains(ALM_META)) db.createObjectStore(ALM_META, { keyPath: 'k' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
-}
-
-// meta 칸 읽기/쓰기 (푸시 열쇠·구독정보를 담아 둡니다)
-function almMetaGet(k) {
-  return almOpenDB().then((db) => new Promise((resolve) => {
-    let out = null;
-    try {
-      const tx = db.transaction(ALM_META, 'readonly');
-      const rq = tx.objectStore(ALM_META).get(k);
-      rq.onsuccess = () => { out = rq.result || null; };
-      tx.oncomplete = () => { db.close(); resolve(out); };
-      tx.onerror = () => { db.close(); resolve(null); };
-    } catch (e) { try { db.close(); } catch (e2) {} resolve(null); }
-  })).catch(() => null);
-}
-
-function almMetaPut(obj) {
-  return almOpenDB().then((db) => new Promise((resolve) => {
-    try {
-      const tx = db.transaction(ALM_META, 'readwrite');
-      tx.objectStore(ALM_META).put(obj);
-      tx.oncomplete = () => { db.close(); resolve(true); };
-      tx.onerror = () => { db.close(); resolve(false); };
-    } catch (e) { try { db.close(); } catch (e2) {} resolve(false); }
-  })).catch(() => false);
 }
 
 function almReadAll() {
@@ -3691,8 +3663,6 @@ function syncAlarmsToSW() {
     return almReplaceAll(buildAlarmRows(byId));
   }).then(() => {
     postToSW({ type: 'ALARM_SYNC' });
-    // 알람 목록이 바뀌었으니 GAS 쪽 예약도 다시 올립니다 (앱이 꺼져 있을 때용)
-    return setupWebPush('알람변경');
   }).catch(() => null);
 }
 
@@ -3794,159 +3764,6 @@ function listenToSW() {
       try { openDetail(msg.id); } catch (e) {}
     }
   });
-}
-
-/* ============================================================================
-   [7-D] 🔔 웹 푸시 — 앱이 완전히 꺼져 있어도 정시에 울리게 (2026-08-14 추가)
-   ----------------------------------------------------------------------------
-   ★ 왜 필요한가요?
-     크롬은 웹앱이 '몇 시에 깨워달라' 고 스스로 예약하는 것을 허용하지 않습니다.
-     (2026-08-14 실제 폰 테스트로 확인 — 앱을 닫으면 알람이 울리지 않았습니다)
-     그래서 알람 시각에 폰을 깨워 줄 '바깥쪽 신호' 가 필요하고, 그것이 웹 푸시입니다.
-
-   ★ 어떻게 도나요?
-       [앱]  알람을 저장 → 구독정보 + 서명을 GAS 로 보냄
-       [GAS] 1분마다 확인 → 시각이 된 알람이 있으면 폰으로 푸시 발송
-       [폰]  서비스워커가 깨어남 → IndexedDB 를 읽어 알림을 띄움
-             (이 마지막 단계는 2026-08-14 폰에서 동작을 확인했습니다)
-
-   ★ 개인정보
-     · 서명에 쓰는 개인열쇠는 이 폰 안(IndexedDB)에만 있고 밖으로 나가지 않습니다.
-     · GAS 로는 '구독 주소 + 서명 + 알람 시각' 만 보냅니다.
-       메모 제목·본문은 절대 보내지 않습니다. 알림 문구는 폰 안에서 만듭니다.
-   ============================================================================ */
-
-let pushSetupDone = false;
-
-/* ── 잔글씨 도구 (문자열/바이트 ↔ base64url) ─────────────────────────────── */
-
-function pushB64u(buf) {
-  const arr = new Uint8Array(buf);
-  let s = '';
-  for (let i = 0; i < arr.length; i++) s += String.fromCharCode(arr[i]);
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function pushB64uText(str) {
-  return pushB64u(new TextEncoder().encode(str));
-}
-
-function pushB64uToBytes(s) {
-  const t = s.replace(/-/g, '+').replace(/_/g, '/');
-  const pad = t + '='.repeat((4 - t.length % 4) % 4);
-  const bin = atob(pad);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-/* ── ① 이 폰만의 열쇠 한 쌍 만들기 (처음 한 번만) ───────────────────────── */
-
-async function ensureVapidKeys() {
-  const saved = await almMetaGet('vapid');
-  if (saved && saved.priv && saved.pub) return saved;
-
-  const pair = await crypto.subtle.generateKey(
-    { name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']
-  );
-  const priv = await crypto.subtle.exportKey('jwk', pair.privateKey);
-  const pubRaw = await crypto.subtle.exportKey('raw', pair.publicKey);
-
-  const rec = { k: 'vapid', priv: priv, pub: pushB64u(pubRaw) };
-  await almMetaPut(rec);
-  return rec;
-}
-
-/* ── ② 푸시 서버에게 '나에게 보내줘' 하고 구독하기 ──────────────────────── */
-
-async function ensurePushSubscription(pubKeyB64u) {
-  const reg = await navigator.serviceWorker.ready;
-  let sub = await reg.pushManager.getSubscription();
-
-  if (sub) {
-    // 열쇠가 바뀌었으면(앱 데이터 삭제 등) 구독을 새로 맺습니다
-    const cur = sub.options && sub.options.applicationServerKey
-      ? pushB64u(sub.options.applicationServerKey) : '';
-    if (cur && cur !== pubKeyB64u) { try { await sub.unsubscribe(); } catch (e) {} sub = null; }
-  }
-  if (!sub) {
-    sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: pushB64uToBytes(pubKeyB64u)
-    });
-  }
-  return sub;
-}
-
-/* ── ③ '내가 보낸 게 맞다' 는 서명 만들기 (최대 24시간짜리) ─────────────── */
-
-async function signVapidJwt(privJwk, audience) {
-  const key = await crypto.subtle.importKey(
-    'jwk', privJwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']
-  );
-  const head = pushB64uText(JSON.stringify({ typ: 'JWT', alg: 'ES256' }));
-  const body = pushB64uText(JSON.stringify({
-    aud: audience,
-    exp: Math.floor(Date.now() / 1000) + 23 * 3600,
-    sub: 'https://why2korea.github.io/smartphone_idea_logging/'
-  }));
-  const signed = head + '.' + body;
-  const sig = await crypto.subtle.sign(
-    { name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(signed)
-  );
-  return signed + '.' + pushB64u(sig);
-}
-
-/* ── ④ 구독정보 + 서명 + 알람 시각을 GAS 에 올리기 ──────────────────────── */
-
-async function sendPushConfigToGAS(reason) {
-  const gasUrl = getGasUrl();
-  if (!gasUrl) return { ok: false, why: 'GAS 주소가 없습니다 (설정에서 잠금 해제 필요)' };
-  if (notifyPermission() !== 'granted') return { ok: false, why: '알림 권한이 없습니다' };
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    return { ok: false, why: '이 브라우저는 웹 푸시를 지원하지 않습니다' };
-  }
-
-  const keys = await ensureVapidKeys();
-  const sub = await ensurePushSubscription(keys.pub);
-  const aud = new URL(sub.endpoint).origin;
-  const jwt = await signVapidJwt(keys.priv, aud);
-
-  // 서비스워커도 혼자서 서명을 갱신할 수 있도록 필요한 정보를 남겨 둡니다
-  let cfg = await almMetaGet('pushcfg');
-  const deviceId = (cfg && cfg.deviceId) || uuid();
-  await almMetaPut({ k: 'pushcfg', deviceId: deviceId, gasUrl: gasUrl });
-
-  const rows = await almReadAll();
-  const alarms = rows
-    .filter((a) => a && a.on && !a.fired && a.at > Date.now())
-    .map((a) => ({ id: a.id, at: a.at }));       // ★ 제목·본문은 보내지 않습니다
-
-  const res = await fetch(gasUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({
-      alarmPush: true,
-      deviceId: deviceId,
-      endpoint: sub.endpoint,
-      vapidPublic: keys.pub,
-      jwt: jwt,
-      alarms: alarms,
-      reason: reason || ''
-    })
-  });
-
-  let out = {};
-  try { out = await res.json(); } catch (e) { out = { ok: res.ok }; }
-  return { ok: !!out.ok, count: alarms.length, why: out.error || '' };
-}
-
-/* ── ⑤ 앱을 열 때 / 알람이 바뀔 때 자동으로 올리기 ─────────────────────── */
-
-function setupWebPush(reason) {
-  return sendPushConfigToGAS(reason)
-    .then((r) => { pushSetupDone = !!r.ok; return r; })
-    .catch((e) => ({ ok: false, why: String(e && e.message ? e.message : e) }));
 }
 
 /* 알림을 눌러 앱이 새로 열린 경우 (?alarm=아이디) 그 메모를 바로 보여줍니다 */
@@ -4207,9 +4024,6 @@ function initApp() {
           if (notifyPermission() === 'granted') registerPeriodicAlarmCheck();
           // 알람 목록을 서비스워커 창고로 옮겨 적습니다
           queueAlarmSync();
-          // 🔔 웹 푸시 서명을 새로 만들어 GAS 에 올립니다 (앱을 열 때마다)
-          //    잠금 해제(GAS 주소 확보) 뒤에 하도록 조금 늦춥니다
-          setTimeout(() => { setupWebPush('앱시작'); }, 2500);
         })
         .catch(() => {});
     });

@@ -7,11 +7,11 @@
           (2026-08-14 추가)
 
    ※ 코드를 수정했는데 휴대폰에서 바뀌지 않으면
-      아래 CACHE_NAME 의 v10 을 v11, v12 ... 으로 올려주세요.
+      아래 CACHE_NAME 의 v9 를 v10, v11 ... 으로 올려주세요.
       그러면 옛 캐시를 버리고 새 파일을 내려받습니다.
    ============================================================ */
 
-const CACHE_NAME = 'why2korea-memo-v10';
+const CACHE_NAME = 'why2korea-memo-v9';
 
 // 미리 저장해 둘 파일 목록
 const PRECACHE_FILES = [
@@ -123,9 +123,7 @@ self.addEventListener('fetch', (event) => {
    ============================================================================ */
 
 const ALARM_DB      = 'why2korea_alarm';   // 알람 전용 저장소 이름
-const ALARM_DB_VER  = 2;                   // ★ index.html 의 ALM_DB_VER 과 반드시 같아야 합니다
 const ALARM_STORE   = 'alarms';            // 그 안의 표 이름
-const META_STORE    = 'meta';              // 푸시 열쇠·구독정보를 담는 칸 (2026-08-14)
 const ALARM_TAG     = 'w2k-alarm-';        // 알림에 붙이는 이름표 (중복 방지)
 const ALARM_NEAR_MS = 5 * 60 * 1000;       // '곧 울릴 알람' 기준 = 5분
 const ALARM_FETCH_GAP_MS = 20 * 1000;      // fetch 때 확인하는 최소 간격
@@ -138,35 +136,17 @@ let alarmSleepTimer = null;
 function alarmOpenDB() {
   return new Promise((resolve, reject) => {
     let req;
-    try { req = indexedDB.open(ALARM_DB, ALARM_DB_VER); }
+    try { req = indexedDB.open(ALARM_DB, 1); }
     catch (e) { reject(e); return; }
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(ALARM_STORE)) {
         db.createObjectStore(ALARM_STORE, { keyPath: 'id' });
       }
-      // v2: 푸시 열쇠·구독정보를 담아 둘 칸 (2026-08-14)
-      if (!db.objectStoreNames.contains(META_STORE)) {
-        db.createObjectStore(META_STORE, { keyPath: 'k' });
-      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
-}
-
-// meta 칸 한 줄 읽기 (없으면 null)
-function metaGet(k) {
-  return alarmOpenDB().then((db) => new Promise((resolve) => {
-    let out = null;
-    try {
-      const tx = db.transaction(META_STORE, 'readonly');
-      const rq = tx.objectStore(META_STORE).get(k);
-      rq.onsuccess = () => { out = rq.result || null; };
-      tx.oncomplete = () => { db.close(); resolve(out); };
-      tx.onerror = () => { db.close(); resolve(null); };
-    } catch (e) { try { db.close(); } catch (e2) {} resolve(null); }
-  })).catch(() => null);
 }
 
 function alarmReadAll() {
@@ -378,89 +358,8 @@ self.addEventListener('message', (event) => {
 // 브라우저가 주기적으로 깨워 주는 통로 (설치한 PWA + 크롬 계열)
 self.addEventListener('periodicsync', (event) => {
   if (event.tag !== 'w2k-alarm-check') return;
-  event.waitUntil(
-    alarmWakeup()
-      .then((w) => alarmHoldUntilNext(w))
-      // 앱을 안 열어도 서명이 만료되지 않도록 여기서 새로 발급해 둡니다
-      .then(() => refreshPushConfig())
-      .catch(() => null)
-  );
+  event.waitUntil(alarmWakeup().then((w) => alarmHoldUntilNext(w)).catch(() => null));
 });
-
-
-/* ============================================================================
-   [5] 🔔 웹 푸시 서명 갱신 — 앱을 안 열어도 알람이 계속 울리게 (2026-08-14)
-   ----------------------------------------------------------------------------
-   구글 앱스 스크립트(GAS)가 알람 시각에 푸시를 보내려면 'VAPID 서명' 이 필요한데,
-   이 서명은 규격상 최대 24시간짜리입니다. 그래서
-
-     · 앱을 열 때        → index.html 이 새 서명을 만들어 GAS 로 보냅니다
-     · 앱을 안 열어도     → 여기(서비스워커)가 주기적으로 새 서명을 만들어 보냅니다
-
-   서명에 쓰는 개인열쇠는 이 폰의 IndexedDB 안에만 있고 밖으로 나가지 않습니다.
-   ============================================================================ */
-
-function b64u(bytes) {
-  let s = '';
-  const arr = new Uint8Array(bytes);
-  for (let i = 0; i < arr.length; i++) s += String.fromCharCode(arr[i]);
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function b64uText(str) {
-  return b64u(new TextEncoder().encode(str));
-}
-
-// 푸시 서버(예: fcm.googleapis.com)에게 '내가 보낸 게 맞다' 고 알리는 서명을 만듭니다
-async function signVapidJwt(privJwk, audience) {
-  const key = await crypto.subtle.importKey(
-    'jwk', privJwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']
-  );
-  const head = b64uText(JSON.stringify({ typ: 'JWT', alg: 'ES256' }));
-  const body = b64uText(JSON.stringify({
-    aud: audience,
-    exp: Math.floor(Date.now() / 1000) + 23 * 3600,   // 규격상 최대 24시간
-    sub: 'https://why2korea.github.io/smartphone_idea_logging/'
-  }));
-  const signed = head + '.' + body;
-  const sig = await crypto.subtle.sign(
-    { name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(signed)
-  );
-  return signed + '.' + b64u(sig);
-}
-
-// 새 서명을 만들어 GAS 에 올려 둡니다
-async function refreshPushConfig() {
-  try {
-    const keys = await metaGet('vapid');
-    const cfg  = await metaGet('pushcfg');
-    if (!keys || !keys.priv || !cfg || !cfg.gasUrl) return false;
-
-    const sub = await self.registration.pushManager.getSubscription();
-    if (!sub) return false;
-
-    const aud = new URL(sub.endpoint).origin;
-    const jwt = await signVapidJwt(keys.priv, aud);
-
-    const res = await fetch(cfg.gasUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({
-        alarmPush: true,
-        deviceId: cfg.deviceId,
-        endpoint: sub.endpoint,
-        vapidPublic: keys.pub,
-        jwt: jwt,
-        alarms: (await alarmReadAll())
-          .filter((a) => a && a.on && !a.fired && a.at > Date.now())
-          .map((a) => ({ id: a.id, at: a.at }))
-      })
-    });
-    return res.ok;
-  } catch (e) {
-    return false;
-  }
-}
 
 // 인터넷이 끊겼다 돌아올 때 등 (한 번짜리 동기화)
 self.addEventListener('sync', (event) => {
