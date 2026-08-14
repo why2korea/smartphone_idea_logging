@@ -265,9 +265,6 @@ textarea.body{ flex:1 1 auto; min-height:90px; resize:none; line-height:1.5; }
 .badge.집안용{ background:#2b4a35; color:#a8ffc4; border-color:#3b6b4a; }
 .badge.회사용{ background:#553a2b; color:#ffcda8; border-color:#75503b; }
 .badge.sent{ background:transparent; color:var(--ok); border-color:var(--ok); }
-/* ⏰ 알람을 켜 둔 메모임을 히스토리 목록에서 알려주는 표시 */
-.badge.alm{ background:transparent; color:var(--accent); border-color:var(--accent); }
-.badge.almdone{ background:transparent; color:var(--sub); border-color:var(--line); }
 .item .ttl{ font-size:16px; font-weight:700; }
 .item .prev{ font-size:14px; color:var(--sub); overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 .item .ims{ display:flex; gap:4px; }
@@ -576,9 +573,8 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
         <div id="detAlarmHint" class="alarmhint"></div>
       </div>
       <p class="help">
-        알람은 <b>앱이 꺼져 있어도</b> 휴대폰 알림으로 알려줍니다(알림 허용 필요).
-        알림이 막혀 있으면 앱을 다시 열 때 '지난 알람'으로 알려드립니다.
-        (아래 '수정 저장'을 눌러야 반영됩니다)
+        알람은 <b>앱이 열려 있을 때</b> 팝업으로 알려줍니다. 앱이 꺼져 있는 동안 시각이 지났다면
+        앱을 다시 열 때 알려드립니다. (아래 '수정 저장'을 눌러야 반영됩니다)
       </p>
     </div>
 
@@ -1103,14 +1099,7 @@ function toast(message) {
 
 // 기록 목록 읽기/쓰기
 const getRecords = () => load(KEY.records, []);
-
-/* 기록을 저장할 때마다 ⏰ 알람 목록도 서비스워커 쪽 창고(IndexedDB)에 옮겨 적습니다.
-   서비스워커는 앱이 꺼져 있어도 그 창고를 읽고 알림을 띄웁니다. (2026-08-14) */
-const setRecords = (list) => {
-  const ok = save(KEY.records, list);
-  if (ok) queueAlarmSync();
-  return ok;
-};
+const setRecords = (list) => save(KEY.records, list);
 
 /* ── 히스토리 '확인 표시' 와 '고정' 에 대하여 ─────────────────────────────
    두 표시는 기록과 같은 곳(localStorage 의 KEY.records)에 함께 저장합니다.
@@ -1478,15 +1467,6 @@ function fmtAlarmWhen(d) {
   return dayKey(d) + ' (' + WEEKDAY[d.getDay()] + ') ' + fmtHm(d);
 }
 
-/* 히스토리 목록의 작은 알람 표시에 쓰는 짧은 형식 (2026-08-14 추가)
-   · 오늘이면 "14:30"
-   · 다른 날이면 "8-16(토) 14:30" */
-function fmtAlarmShort(d) {
-  const today = dayKey(new Date());
-  if (dayKey(d) === today) return fmtHm(d);
-  return (d.getMonth() + 1) + '-' + d.getDate() + '(' + WEEKDAY[d.getDay()] + ') ' + fmtHm(d);
-}
-
 // 알람을 처음 켰을 때 기본으로 채워 넣을 시각 = 지금부터 1시간 뒤
 function defaultAlarmDate() {
   const d = new Date();
@@ -1523,16 +1503,6 @@ function paintAlarmUI(chkEl, rowEl, dateEl, timeEl, hintEl) {
   } else {
     hintEl.textContent = '⏰ ' + fmtAlarmWhen(d) + ' 에 알려드립니다';
   }
-
-  /* 알림 권한이 없으면 '앱이 꺼져 있을 때' 는 울릴 수 없으므로 함께 알려줍니다.
-     (2026-08-14 추가 — 안내문만 덧붙이고 화면 구성은 그대로입니다) */
-  const perm = notifyPermission();
-  if (perm !== 'granted') {
-    hintEl.classList.add('warn');
-    hintEl.textContent += (perm === 'denied')
-      ? ' · 🔔 알림이 차단되어 있어 앱을 열었을 때만 울립니다 (브라우저 사이트 설정에서 알림 허용)'
-      : ' · 🔔 알림을 허용하면 앱이 꺼져 있어도 울립니다';
-  }
 }
 
 // 입력 화면의 알람칸 모음
@@ -1567,14 +1537,6 @@ alarmEls.chk.addEventListener('change', () => {
   readDraftAlarm();
   paintAlarmUI(alarmEls.chk, alarmEls.row, alarmEls.date, alarmEls.time, alarmEls.hint);
   markDirty();
-
-  /* 알람을 켜는 '지금 이 순간' 이 알림 권한을 물어볼 수 있는 유일한 타이밍입니다.
-     (브라우저는 사용자가 직접 누른 직후에만 권한 창을 띄워 줍니다) — 2026-08-14 */
-  if (alarmEls.chk.checked) {
-    requestNotifyPermission().then(() => {
-      paintAlarmUI(alarmEls.chk, alarmEls.row, alarmEls.date, alarmEls.time, alarmEls.hint);
-    });
-  }
 });
 
 [alarmEls.date, alarmEls.time].forEach((el) => {
@@ -3059,19 +3021,6 @@ function buildHistoryItem(rec, showPinAction) {
     meta.appendChild(done);
   }
 
-  /* ⏰ 알람을 켜 둔 메모 (2026-08-14 추가)
-     · 아직 안 울렸으면 노란 테두리로 '⏰ 8-16 14:30'
-     · 이미 울렸거나 시각이 지났으면 흐린 테두리로 '⏰ 8-16 14:30 울림' */
-  const almInfo = alarmOf(rec);
-  if (almInfo.on && almInfo.date) {
-    const rung = almInfo.fired || almInfo.date.getTime() <= Date.now();
-    const alm = document.createElement('span');
-    alm.className = 'badge ' + (rung ? 'almdone' : 'alm');
-    alm.textContent = '⏰ ' + fmtAlarmShort(almInfo.date) + (rung ? ' 울림' : '');
-    alm.title = '알람: ' + fmtAlarmWhen(almInfo.date);
-    meta.appendChild(alm);
-  }
-
   if (rec.sentTo && rec.sentTo.length) {
     const sent = document.createElement('span');
     sent.className = 'badge sent';
@@ -3288,8 +3237,6 @@ $('#detAlarmChk').addEventListener('change', () => {
   if ($('#detAlarmChk').checked && !$('#detAlarmDate').value) {
     fillWhenInputs($('#detAlarmDate'), $('#detAlarmTime'), defaultAlarmDate());
   }
-  // 알림 권한 물어보기 (입력 화면과 같은 이유 — 2026-08-14)
-  if ($('#detAlarmChk').checked) requestNotifyPermission().then(paintDetAlarm);
   paintDetAlarm();
 });
 $('#detAlarmDate').addEventListener('change', paintDetAlarm);
@@ -3370,22 +3317,16 @@ $('#detSendRow').addEventListener('click', async (e) => {
 
 
 /* ============================================================================
-   [7-B] ⏰ 알람 — 설정한 시각이 되면 알려줍니다 (2026-08-14 개편)
+   [7-B] ⏰ 알람 — 설정한 시각이 되면 팝업으로 알려줍니다
    ----------------------------------------------------------------------------
    ★ 어디까지 되는지 (중요)
-     · 앱이 열려 있으면      → 앱 안 팝업으로 알려줍니다 (예전과 같음)
-     · 앱이 화면 밖/꺼져 있으면 → 휴대폰 알림(OS 알림)으로 알려줍니다  ← 이번에 추가
-     · 알림을 허용하지 않았거나 브라우저가 막았다면, 예전처럼 앱을 다시 열 때
-       '⏰ 지난 알람' 으로 모아서 알려드립니다. (안전망은 그대로 둡니다)
-
-   ★ 어떻게 하나요?
-     앱이 알람 목록을 IndexedDB('why2korea_alarm') 에 옮겨 적어 두면,
-     앱과 따로 도는 서비스워커(sw.js)가 그것을 읽어 알림을 띄웁니다.
-     자세한 방법은 sw.js 의 [4] 알람 엔진 설명을 봐 주세요.
+     · 앱이 열려 있으면 시각이 될 때 팝업이 뜹니다.
+     · 앱을 완전히 껐다면 그 사이에는 울리지 않고, 다시 열 때
+       '⏰ 지난 알람' 으로 모아서 알려드립니다.
+     · 앱이 꺼진 상태에서 울리게 하려면 브라우저 알림 권한과 푸시 서버가
+       따로 있어야 해서 이번에는 넣지 않았습니다.
 
    ★ 한 번 울린 알람은 기록에 alarmFiredAt 을 남겨 다시 울리지 않습니다.
-     서비스워커가 울린 경우에는 IndexedDB 에 fired 표시가 남고,
-     앱이 다음에 열릴 때 그것을 기록으로 옮겨 적습니다. (두 번 울리지 않게)
      상세 화면에서 시각을 바꾸면 그 표시가 지워져 다시 울립니다.
    ============================================================================ */
 
@@ -3482,297 +3423,26 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !$('#alarmModal').classList.contains('hidden')) closeAlarm();
 });
 
-// 시각이 되었는지 확인 → 되었으면 팝업(앱이 보일 때) 또는 휴대폰 알림(화면 밖일 때)
+// 시각이 되었는지 확인 → 되었으면 팝업
 function checkAlarms() {
   const due = collectDueAlarms();
   if (due.length) {
     due.sort((a, b) => a.at - b.at);          // 이른 시각부터 보여줍니다
-
-    /* 화면 밖에 있을 때는 앱 안 팝업을 띄워도 보이지 않습니다.
-       이럴 때는 휴대폰 알림으로 바꿔서 내보냅니다. (2026-08-14) */
-    if (document.visibilityState !== 'visible' && notifyPermission() === 'granted') {
-      due.forEach(pushAlarmNotification);
-    } else {
-      alarmQueue = alarmQueue.concat(due);
-    }
+    alarmQueue = alarmQueue.concat(due);
   }
   showNextAlarm();
 }
 
 // 알람 지켜보기 시작 (앱을 켤 때 한 번 + 15초마다 + 화면으로 되돌아올 때마다)
 function startAlarmWatch() {
-  pullFiredFromSW();          // 서비스워커가 이미 울린 알람을 먼저 반영합니다
   checkAlarms();
-  queueAlarmSync();           // 알람 목록을 서비스워커 창고에 옮겨 적습니다
   if (alarmTimer) clearInterval(alarmTimer);
   alarmTimer = setInterval(checkAlarms, ALARM_CHECK_MS);
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      pullFiredFromSW();
-      checkAlarms();
-    } else {
-      // 화면 밖으로 나가는 순간, 곧 울릴 알람을 서비스워커에게 맡깁니다
-      postToSW({ type: 'ALARM_ARM', hold: true });
-    }
+    if (document.visibilityState === 'visible') checkAlarms();
   });
   window.addEventListener('focus', checkAlarms);
-  window.addEventListener('pagehide', () => postToSW({ type: 'ALARM_ARM', hold: true }));
-}
-
-
-/* ============================================================================
-   [7-C] ⏰ 앱이 꺼져 있어도 울리게 하기 — 서비스워커에게 알람 넘겨주기
-   ----------------------------------------------------------------------------
-   앱(이 화면)과 서비스워커(sw.js)는 서로 다른 프로그램이라
-   localStorage 를 함께 쓸 수 없습니다. 그래서 둘 다 볼 수 있는
-   IndexedDB('why2korea_alarm') 라는 창고에 알람 목록을 옮겨 적습니다.
-   ============================================================================ */
-
-const ALM_DB = 'why2korea_alarm';
-const ALM_STORE = 'alarms';
-const ALM_PERIODIC_TAG = 'w2k-alarm-check';
-
-let alarmSyncTimer = null;
-
-/* ── 알림 권한 ─────────────────────────────────────────────────────────── */
-
-// 'granted' / 'denied' / 'default' / 'unsupported'
-function notifyPermission() {
-  if (typeof Notification === 'undefined') return 'unsupported';
-  try { return Notification.permission; } catch (e) { return 'unsupported'; }
-}
-
-// 알림 권한 물어보기 (사용자가 알람 체크를 켠 직후에만 부릅니다)
-function requestNotifyPermission() {
-  if (notifyPermission() !== 'default') return Promise.resolve(notifyPermission());
-  try {
-    const r = Notification.requestPermission();
-    const p = (r && typeof r.then === 'function')
-      ? r
-      : new Promise((res) => { try { Notification.requestPermission(res); } catch (e) { res(notifyPermission()); } });
-    return p.then((state) => {
-      if (state === 'granted') registerPeriodicAlarmCheck();
-      return state;
-    }).catch(() => notifyPermission());
-  } catch (e) {
-    return Promise.resolve(notifyPermission());
-  }
-}
-
-/* ── IndexedDB 창고 다루기 ─────────────────────────────────────────────── */
-
-function almOpenDB() {
-  return new Promise((resolve, reject) => {
-    if (!('indexedDB' in window)) { reject(new Error('no-idb')); return; }
-    let req;
-    try { req = indexedDB.open(ALM_DB, 1); } catch (e) { reject(e); return; }
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(ALM_STORE)) db.createObjectStore(ALM_STORE, { keyPath: 'id' });
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function almReadAll() {
-  return almOpenDB().then((db) => new Promise((resolve) => {
-    let out = [];
-    try {
-      const tx = db.transaction(ALM_STORE, 'readonly');
-      const rq = tx.objectStore(ALM_STORE).getAll();
-      rq.onsuccess = () => { out = rq.result || []; };
-      tx.oncomplete = () => { db.close(); resolve(out); };
-      tx.onerror = () => { db.close(); resolve([]); };
-    } catch (e) { try { db.close(); } catch (e2) {} resolve([]); }
-  })).catch(() => []);
-}
-
-// 창고를 비우고 새 목록으로 통째로 다시 채웁니다 (지운 메모의 알람도 함께 사라지게)
-function almReplaceAll(rows) {
-  return almOpenDB().then((db) => new Promise((resolve) => {
-    try {
-      const tx = db.transaction(ALM_STORE, 'readwrite');
-      const st = tx.objectStore(ALM_STORE);
-      st.clear();
-      rows.forEach((r) => { try { st.put(r); } catch (e) {} });
-      tx.oncomplete = () => { db.close(); resolve(true); };
-      tx.onerror = () => { db.close(); resolve(false); };
-    } catch (e) { try { db.close(); } catch (e2) {} resolve(false); }
-  })).catch(() => false);
-}
-
-/* ── 서비스워커에게 말 걸기 ────────────────────────────────────────────── */
-
-function postToSW(msg) {
-  if (!('serviceWorker' in navigator)) return;
-  try {
-    if (navigator.serviceWorker.controller) {
-      navigator.serviceWorker.controller.postMessage(msg);
-      return;
-    }
-    navigator.serviceWorker.ready.then((reg) => {
-      const sw = reg.active || reg.waiting || reg.installing;
-      if (sw) sw.postMessage(msg);
-    }).catch(() => {});
-  } catch (e) {}
-}
-
-/* ── 알람 목록 옮겨 적기 ───────────────────────────────────────────────── */
-
-/* 기록(localStorage) → 창고(IndexedDB) 로 옮겨 적을 줄들을 만듭니다.
-   알람이 꺼진 메모, 시각이 이상한 메모는 아예 넣지 않습니다. */
-function buildAlarmRows(prevById) {
-  const rows = [];
-  getRecords().forEach((rec) => {
-    const a = alarmOf(rec);
-    if (!a.on || !a.date) return;
-
-    const at = a.date.getTime();
-    const old = prevById[rec.id];
-    // 시각을 바꿨다면 '울렸음'·'예약함' 표시를 지워서 새 시각에 다시 울리게 합니다
-    const same = !!(old && old.at === at);
-
-    let fired = 0;
-    if (a.fired) {                                   // 기록에 이미 울렸다고 적혀 있음
-      const t = Date.parse(rec.alarmFiredAt);
-      fired = isNaN(t) ? Date.now() : t;
-    } else if (same && old.fired) {                  // 서비스워커가 울렸는데 아직 못 옮겨 적음
-      fired = old.fired;
-    }
-
-    rows.push({
-      id: rec.id,
-      title: rec.title || autoTitle(rec.body, rec.files) || '(제목 없음)',
-      category: rec.category || '',
-      at: at,
-      on: true,
-      fired: fired,
-      armed: same ? !!old.armed : false
-    });
-  });
-  return rows;
-}
-
-// 실제로 옮겨 적고, 서비스워커에게 "다시 확인해줘" 라고 알립니다
-function syncAlarmsToSW() {
-  return almReadAll().then((prev) => {
-    const byId = {};
-    prev.forEach((p) => { if (p && p.id) byId[p.id] = p; });
-    return almReplaceAll(buildAlarmRows(byId));
-  }).then(() => {
-    postToSW({ type: 'ALARM_SYNC' });
-  }).catch(() => null);
-}
-
-// 저장이 잇달아 일어날 때 한 번만 옮겨 적도록 잠깐 모았다 처리합니다
-function queueAlarmSync() {
-  if (alarmSyncTimer) clearTimeout(alarmSyncTimer);
-  alarmSyncTimer = setTimeout(() => {
-    alarmSyncTimer = null;
-    syncAlarmsToSW();
-  }, 400);
-}
-
-/* 서비스워커가 이미 울린 알람을 기록에 옮겨 적습니다.
-   → 앱을 다시 열었을 때 같은 알람이 팝업으로 또 뜨지 않게 합니다. */
-function pullFiredFromSW() {
-  return almReadAll().then((rows) => {
-    if (!rows.length) return;
-
-    const firedAt = {};
-    rows.forEach((r) => { if (r && r.fired) firedAt[r.id] = r.fired; });
-    if (!Object.keys(firedAt).length) return;
-
-    const list = getRecords();
-    let changed = false;
-    list.forEach((rec) => {
-      if (!rec || !firedAt[rec.id]) return;
-      if (rec.alarmFiredAt) return;                 // 이미 표시가 있으면 그대로
-      rec.alarmFiredAt = toLocalISO(new Date(firedAt[rec.id]));
-      alarmFiredIds.add(rec.id);
-      changed = true;
-    });
-    if (changed) {
-      save(KEY.records, list);                      // setRecords 를 피해 되풀이를 막습니다
-      if (currentView === 'history') renderHistory();
-    }
-  }).catch(() => null);
-}
-
-/* ── 화면 밖일 때 휴대폰 알림 내보내기 ────────────────────────────────── */
-
-function pushAlarmNotification(item) {
-  if (!('serviceWorker' in navigator)) return;
-  const late = (Date.now() - item.at) > 90 * 1000;
-  const lines = [];
-  if (item.category) lines.push('분류: ' + item.category);
-  lines.push('알람 시각: ' + fmtAlarmWhen(new Date(item.at)));
-
-  navigator.serviceWorker.ready.then((reg) => {
-    reg.showNotification((late ? '⏰ 지난 알람 — ' : '⏰ 알람 — ') + item.title, {
-      body: lines.join('\n'),
-      tag: 'w2k-alarm-' + item.id,
-      renotify: true,
-      requireInteraction: true,
-      vibrate: [300, 120, 300, 120, 300],
-      icon: './icons/icon-192.png',
-      badge: './icons/icon-192.png',
-      timestamp: item.at,
-      data: { id: item.id, at: item.at, kind: 'alarm' }
-    }).catch(() => {});
-  }).catch(() => {});
-}
-
-/* ── 브라우저가 주기적으로 깨워 주도록 신청하기 ───────────────────────── */
-
-function registerPeriodicAlarmCheck() {
-  if (!('serviceWorker' in navigator)) return;
-
-  navigator.serviceWorker.ready.then((reg) => {
-    // ① 주기 백그라운드 동기화 (설치한 PWA + 크롬 계열에서만 됩니다)
-    if (reg.periodicSync) {
-      const ask = (navigator.permissions && navigator.permissions.query)
-        ? navigator.permissions.query({ name: 'periodic-background-sync' }).catch(() => ({ state: 'granted' }))
-        : Promise.resolve({ state: 'granted' });
-
-      ask.then((st) => {
-        if (st.state === 'denied') return;
-        reg.periodicSync.register(ALM_PERIODIC_TAG, { minInterval: 15 * 60 * 1000 }).catch(() => {});
-      });
-    }
-    // ② 한 번짜리 백그라운드 동기화 (인터넷이 돌아올 때 등)
-    if (reg.sync) reg.sync.register(ALM_PERIODIC_TAG).catch(() => {});
-  }).catch(() => {});
-}
-
-/* ── 서비스워커가 보내오는 말 듣기 ────────────────────────────────────── */
-
-function listenToSW() {
-  if (!('serviceWorker' in navigator)) return;
-
-  navigator.serviceWorker.addEventListener('message', (event) => {
-    const msg = event.data || {};
-
-    // 서비스워커가 알람을 울렸다 → 기록에 '울렸음' 을 옮겨 적습니다
-    if (msg.type === 'ALARM_FIRED') { pullFiredFromSW(); return; }
-
-    // 휴대폰 알림을 눌러서 앱이 열렸다 → 그 메모 상세 화면을 띄웁니다
-    if (msg.type === 'ALARM_OPEN' && msg.id) {
-      pullFiredFromSW();
-      try { openDetail(msg.id); } catch (e) {}
-    }
-  });
-}
-
-/* 알림을 눌러 앱이 새로 열린 경우 (?alarm=아이디) 그 메모를 바로 보여줍니다 */
-function openAlarmFromUrl() {
-  let id = '';
-  try { id = new URLSearchParams(location.search).get('alarm') || ''; } catch (e) {}
-  if (!id) return;
-  try { history.replaceState({ view: 'input' }, '', location.pathname); } catch (e) {}
-  setTimeout(() => { try { openDetail(id); } catch (e) {} }, 300);
 }
 
 
@@ -4013,24 +3683,12 @@ function initApp() {
   // 잠금 해제 창(위 400ms)이 먼저 뜨도록 조금 늦게 시작합니다
   setTimeout(startAlarmWatch, 1500);
 
-  /* 서비스워커 등록 — ① 오프라인 지원 ② ⏰ 앱이 꺼져 있을 때의 알람
-     https 또는 localhost 에서만 동작합니다. (file:// 로 열면 알람 예약이 안 됩니다) */
+  // 서비스워커 등록 (오프라인 지원). https 또는 localhost 에서만 동작합니다.
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    listenToSW();                                  // 서비스워커가 보내오는 말 듣기
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js')
-        .then(() => {
-          // 이미 알림을 허용해 둔 기기라면 주기 확인을 바로 신청합니다
-          if (notifyPermission() === 'granted') registerPeriodicAlarmCheck();
-          // 알람 목록을 서비스워커 창고로 옮겨 적습니다
-          queueAlarmSync();
-        })
-        .catch(() => {});
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
     });
   }
-
-  // 휴대폰 알림을 눌러서 앱이 새로 열린 경우 그 메모를 바로 보여줍니다
-  openAlarmFromUrl();
 }
 
 initApp();
