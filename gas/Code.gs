@@ -92,6 +92,11 @@ function doPost(e) {
       return jsonOut(saveAlarmPush(data));
     }
 
+    // 📅 구글 캘린더 연동 (2026-09-03 추가) — 메일도 시트도 건드리지 않습니다
+    if (data.calendarSync) {
+      return jsonOut(syncCalendarEvents(data));
+    }
+
     // 앱의 [연결 테스트] 버튼이 보내는 신호 → 메일을 보내지 않고 바로 응답
     if (data.ping) {
       return jsonOut({
@@ -612,4 +617,161 @@ function hasPushTrigger() {
   return ScriptApp.getProjectTriggers().some(function (t) {
     return t.getHandlerFunction() === PUSH_TRIGGER_FN;
   });
+}
+
+
+/* ============================================================================
+   [9] 📅 구글 캘린더 연동 (2026-09-03 추가)
+   ----------------------------------------------------------------------------
+   ★ 무엇을 하나요?
+     앱에서 ⏰ 알람을 켜 둔 메모(=일정)를, 이 구글 계정 안에 새로 만든
+     'why2korea_memo' 라는 캘린더에 '[memo] 제목' 형태로 표시합니다.
+
+   ★ 왜 새 캘린더를 따로 만드나요?
+     CalendarApp.createCalendar() 로 만든 캘린더는 아무와도 공유하지 않는 한
+     '나(이 구글 계정)' 만 볼 수 있습니다. 원래 쓰던 기본 캘린더를 건드리지
+     않아서, 다른 일정과 섞이지 않고 나중에 껐다 켜기도 쉽습니다.
+
+   ★ 어떻게 도나요?
+       [앱]  알람이 바뀔 때마다 '켜져 있는 알람 전체 목록'(id·제목·분류·시각)을
+             통째로 보냄                                    → syncCalendarEvents(data)
+       [여기] 기기별로 'id → 이벤트id' 표를 스크립트 속성에 보관해 두고
+             ① 새로 생긴 id  → 캘린더에 새 일정 만들기
+             ② 시각/제목이 바뀐 id → 그 일정만 고쳐 쓰기
+             ③ 목록에서 사라진 id(알람을 끔·메모를 지움) → 그 일정 지우기
+
+   ★ 개인정보
+     메모 '제목'은 이제 GAS로 전송됩니다(캘린더에 표시하려면 필요합니다).
+     본문·첨부파일·수신자 이메일은 이 기능과 무관하며 전혀 오가지 않습니다.
+
+   ★ 설치 (한 번만) — 아래 함수를 실행해 캘린더 권한을 미리 승인해 두세요.
+       함수 선택 드롭다운 → 캘린더연동_설치확인 → ▶ 실행 → 권한 승인
+   ============================================================================ */
+
+var CAL_NAME = 'why2korea_memo';
+var CAL_TITLE_PREFIX = '[memo] ';
+var CAL_DURATION_MS = 30 * 60 * 1000;   // 캘린더에 30분짜리 일정으로 표시
+var CAL_MAP_PREFIX = 'w2kcal_';         // 기기별 'id→이벤트id' 매핑을 담을 스크립트 속성 이름 앞머리
+
+/** 앱이 보낸 '켜진 알람 전체 목록'을 캘린더와 맞춥니다 (새로 만들기/고치기/지우기) */
+function syncCalendarEvents(data) {
+  try {
+    var deviceId = String(data.deviceId || '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 60);
+    if (!deviceId) return { ok: false, error: 'deviceId 없음' };
+
+    var items = (data.items || []).filter(function (it) {
+      return it && it.id && typeof it.at === 'number';
+    }).slice(0, 300);
+
+    var cal = getOrCreateCalendar();
+    var props = PropertiesService.getScriptProperties();
+    var mapKey = CAL_MAP_PREFIX + deviceId;
+    var map = {};
+    try { map = JSON.parse(props.getProperty(mapKey) || '{}'); } catch (e) { map = {}; }
+
+    var seen = {};
+    var created = 0, updated = 0, deleted = 0;
+
+    items.forEach(function (it) {
+      seen[it.id] = true;
+      var title = CAL_TITLE_PREFIX + (it.title || '(제목 없음)');
+      var start = new Date(it.at);
+      var end = new Date(it.at + CAL_DURATION_MS);
+
+      var ev = map[it.id] ? safeGetEvent(cal, map[it.id]) : null;
+
+      if (ev) {
+        if (ev.getTitle() !== title) ev.setTitle(title);
+        if (ev.getStartTime().getTime() !== start.getTime()) ev.setTime(start, end);
+        if (it.category) { try { ev.setDescription('분류: ' + it.category); } catch (e) {} }
+        updated++;
+      } else {
+        var newEv = cal.createEvent(title, start, end,
+          it.category ? { description: '분류: ' + it.category } : {});
+        map[it.id] = newEv.getId();
+        created++;
+      }
+    });
+
+    // 목록에서 빠진 것(알람을 껐거나 메모를 지운 것)은 캘린더에서도 지웁니다
+    Object.keys(map).forEach(function (id) {
+      if (seen[id]) return;
+      var ev = safeGetEvent(cal, map[id]);
+      if (ev) { try { ev.deleteEvent(); } catch (e) {} }
+      delete map[id];
+      deleted++;
+    });
+
+    props.setProperty(mapKey, JSON.stringify(map));
+    return { ok: true, calendarName: CAL_NAME, created: created, updated: updated, deleted: deleted, total: items.length };
+
+  } catch (err) {
+    return { ok: false, error: String(err && err.message ? err.message : err) };
+  }
+}
+
+/** 'why2korea_memo' 캘린더를 얻습니다. 없으면 새로 만듭니다 (나만 보이는 비공개 캘린더) */
+function getOrCreateCalendar() {
+  var props = PropertiesService.getScriptProperties();
+  var savedId = props.getProperty('CAL_ID');
+
+  if (savedId) {
+    try { return CalendarApp.getCalendarById(savedId); } catch (e) { /* 지워졌으면 새로 만듭니다 */ }
+  }
+
+  var found = CalendarApp.getCalendarsByName(CAL_NAME);
+  var cal = found.length ? found[0] : CalendarApp.createCalendar(CAL_NAME);
+  props.setProperty('CAL_ID', cal.getId());
+  return cal;
+}
+
+/** 이벤트id로 일정을 찾되, 이미 지워졌으면 null (오류 대신) */
+function safeGetEvent(cal, eventId) {
+  try { return cal.getEventById(eventId); } catch (e) { return null; }
+}
+
+/** ★ 설치 확인: 한 번 실행해 캘린더 권한을 승인하고, 캘린더를 미리 만들어 둡니다 */
+function 캘린더연동_설치확인() {
+  var cal = getOrCreateCalendar();
+  var msg = 'why2korea_memo 캘린더 준비 완료\n이름: ' + cal.getName() + '\nID: ' + cal.getId();
+  Logger.log(msg);
+  return msg;
+}
+
+/** 점검: 기기별로 캘린더에 몇 개의 일정이 연동되어 있는지 봅니다 */
+function 캘린더연동_상태보기() {
+  var props = PropertiesService.getScriptProperties().getProperties();
+  var lines = [];
+  var found = 0;
+
+  Object.keys(props).forEach(function (k) {
+    if (k.indexOf(CAL_MAP_PREFIX) !== 0) return;
+    found++;
+    var map = {};
+    try { map = JSON.parse(props[k]); } catch (e) { return; }
+    lines.push('기기 ' + found + ' (' + k.replace(CAL_MAP_PREFIX, '') + ') — 연동된 일정 ' + Object.keys(map).length + '개');
+  });
+
+  if (!found) lines.push('아직 연동된 기기가 없습니다. 앱 설정에서 캘린더 연동을 켜 보세요.');
+  var out = lines.join('\n');
+  Logger.log(out);
+  return out;
+}
+
+/** 제거: 이 기기가 캘린더에 만든 일정을 전부 지우고 연동을 그만둡니다 */
+function 캘린더연동_기기지우기(deviceId) {
+  var props = PropertiesService.getScriptProperties();
+  var mapKey = CAL_MAP_PREFIX + String(deviceId || '');
+  var map = {};
+  try { map = JSON.parse(props.getProperty(mapKey) || '{}'); } catch (e) {}
+
+  var cal = getOrCreateCalendar();
+  var n = 0;
+  Object.keys(map).forEach(function (id) {
+    var ev = safeGetEvent(cal, map[id]);
+    if (ev) { try { ev.deleteEvent(); n++; } catch (e) {} }
+  });
+  props.deleteProperty(mapKey);
+  Logger.log('일정 ' + n + '개를 지웠습니다.');
+  return n;
 }

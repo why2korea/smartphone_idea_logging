@@ -692,6 +692,25 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
       </div>
     </div>
 
+    <!-- 📅 구글 캘린더 연동 (2026-09-03 추가) -->
+    <div class="section">
+      <h3>📅 구글 캘린더 연동</h3>
+      <p class="help">
+        ⏰ 알람을 켜 둔 메모(=일정)를, 구글 캘린더 안에 새로 만든 <b>why2korea_memo</b> 라는
+        캘린더에 <b>[memo]</b> 를 붙여 표시합니다. 이 캘린더는 아무와도 공유하지 않으므로
+        <b>나(위 GAS를 만든 구글 계정)만</b> 볼 수 있습니다.<br>
+        위 <b>Google Apps Script 웹앱 URL</b>이 있어야 동작하고, GAS 쪽에도
+        캘린더 연동 코드를 붙여넣고 다시 배포해야 합니다.
+      </p>
+      <label class="radio">
+        <input type="checkbox" id="chkCalSync"> 구글 캘린더 연동 켜기
+      </label>
+      <div class="row">
+        <button id="calSyncNow" class="btn" type="button">지금 동기화</button>
+      </div>
+      <p class="help" id="calSyncStatus"></p>
+    </div>
+
     <!-- 데이터 백업 -->
     <div class="section">
       <h3>💾 데이터 백업</h3>
@@ -887,7 +906,9 @@ const KEY = {
   groups:  'why2korea_memo.groups',       // 수신자 이메일 그룹
   mode:    'why2korea_memo.sendMode',     // 전송 방식
   gasUrl:  'why2korea_memo.gasUrl',       // 구글 앱스 스크립트 주소
-  direct:  'why2korea_memo.directTo'      // '직접입력' 으로 마지막에 쓴 주소들
+  direct:  'why2korea_memo.directTo',     // '직접입력' 으로 마지막에 쓴 주소들
+  calSync: 'why2korea_memo.calSync',      // 📅 구글 캘린더 연동을 켰는지 (2026-09-03 추가)
+  calDeviceId: 'why2korea_memo.calDeviceId'  // 캘린더 연동에 쓰는 이 기기만의 id
 };
 
 // '직접입력' 으로 한 번에 보낼 수 있는 사람 수
@@ -3692,6 +3713,7 @@ function syncAlarmsToSW() {
   }).then(() => {
     postToSW({ type: 'ALARM_SYNC' });
     // 알람 목록이 바뀌었으니 GAS 쪽 예약도 다시 올립니다 (앱이 꺼져 있을 때용)
+    if (isCalSyncOn()) syncCalendarToGAS();   // 📅 구글 캘린더 연동이 켜져 있으면 함께 반영
     return setupWebPush('알람변경');
   }).catch(() => null);
 }
@@ -3949,6 +3971,60 @@ function setupWebPush(reason) {
     .catch((e) => ({ ok: false, why: String(e && e.message ? e.message : e) }));
 }
 
+/* ============================================================================
+   [7-E] 📅 구글 캘린더 연동 (2026-09-03 추가)
+   ----------------------------------------------------------------------------
+   ⏰ 알람을 켜 둔 메모(=일정)를 GAS에 보내면, GAS가 구글 캘린더 안에
+   새로 만든 'why2korea_memo' 캘린더(나만 보이는 비공개 캘린더)에
+   '[memo] 제목' 으로 일정을 만들고, 시각이 바뀌면 고쳐 쓰고, 알람을 끄거나
+   메모를 지우면 그 일정도 지웁니다. (설정 → 📅 구글 캘린더 연동 이 켜져 있을 때만)
+   ============================================================================ */
+
+function isCalSyncOn() { return !!load(KEY.calSync, false); }
+
+// 이 기기만의 id — GAS가 '어느 기기가 만든 일정인지' 구분하는 데 씁니다
+function getCalDeviceId() {
+  let id = load(KEY.calDeviceId, '');
+  if (!id) { id = uuid(); save(KEY.calDeviceId, id); }
+  return id;
+}
+
+/**
+ * 현재 켜져 있는 알람(=일정) 전체 목록을 GAS로 보내 캘린더와 맞춥니다.
+ * 연동을 꺼 두었으면 빈 목록을 보내 이미 만든 일정을 정리합니다.
+ */
+async function syncCalendarToGAS() {
+  const gasUrl = getGasUrl();
+  if (!gasUrl) return { ok: false, why: 'GAS 주소가 없습니다 (설정에서 먼저 넣어주세요)' };
+
+  const items = isCalSyncOn()
+    ? getRecords().reduce((acc, rec) => {
+        const a = alarmOf(rec);
+        if (a.on && a.date) {
+          acc.push({
+            id: rec.id,
+            title: rec.title || autoTitle(rec.body, rec.files) || '(제목 없음)',
+            category: rec.category || '',
+            at: a.date.getTime()
+          });
+        }
+        return acc;
+      }, [])
+    : [];
+
+  try {
+    const res = await fetch(gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ calendarSync: true, deviceId: getCalDeviceId(), items: items })
+    });
+    const out = await res.json();
+    return out || { ok: false, why: '응답을 이해할 수 없습니다' };
+  } catch (e) {
+    return { ok: false, why: String(e && e.message ? e.message : e) };
+  }
+}
+
 /* 알림을 눌러 앱이 새로 열린 경우 (?alarm=아이디) 그 메모를 바로 보여줍니다 */
 function openAlarmFromUrl() {
   let id = '';
@@ -3973,6 +4049,12 @@ function fillSettings() {
   const mode = getSendMode();
   $$('input[name="sendmode"]').forEach((r) => { r.checked = (r.value === mode); });
   $('#inpGasUrl').value = getGasUrl();
+
+  // 📅 구글 캘린더 연동 상태 (2026-09-03 추가)
+  $('#chkCalSync').checked = isCalSyncOn();
+  $('#calSyncStatus').textContent = isCalSyncOn()
+    ? '켜짐 — ⏰ 알람을 켠 메모가 알람이 바뀔 때마다 자동으로 반영됩니다.'
+    : '꺼짐 — 켜면 이미 걸어 둔 알람부터 캘린더에 표시됩니다.';
 
   // 잠금 상태 안내
   let status;
@@ -4048,6 +4130,35 @@ $('#modeSave').addEventListener('click', () => {
     save(KEY.mode, mode);
     save(KEY.gasUrl, url);
     toast('전송 설정을 저장했습니다');
+  }
+});
+
+// 📅 구글 캘린더 연동 켜기/끄기 — 즉시 GAS에 반영합니다
+$('#chkCalSync').addEventListener('change', async () => {
+  const on = $('#chkCalSync').checked;
+  if (on && !getGasUrl()) {
+    $('#chkCalSync').checked = false;
+    toast('먼저 위에서 GAS 웹앱 URL을 넣고 저장해 주세요');
+    return;
+  }
+  save(KEY.calSync, on);
+  fillSettings();
+  toast(on ? '구글 캘린더 연동을 켰습니다 — 반영 중…' : '구글 캘린더 연동을 껐습니다 — 만든 일정을 정리하는 중…');
+  const res = await syncCalendarToGAS();
+  toast(res && res.ok ? '완료' : '실패: ' + (res && res.why || res && res.error || '알 수 없음'));
+});
+
+// 📅 지금 바로 동기화
+$('#calSyncNow').addEventListener('click', async () => {
+  if (!getGasUrl()) { toast('먼저 GAS 웹앱 URL을 넣어주세요'); return; }
+  toast('동기화 중…');
+  const res = await syncCalendarToGAS();
+  if (res && res.ok) {
+    toast(isCalSyncOn()
+      ? '동기화 완료 (일정 ' + (res.total || 0) + '개)'
+      : '연동이 꺼져 있어 만든 일정을 정리했습니다');
+  } else {
+    toast('동기화 실패: ' + (res && res.why || res && res.error || '알 수 없음'));
   }
 });
 
