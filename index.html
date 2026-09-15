@@ -121,11 +121,16 @@ textarea.body{ flex:1 1 auto; min-height:90px; resize:none; line-height:1.5; }
   padding:8px 10px; font-size:15px; color-scheme:dark;   /* 안드로이드 달력 팝업도 어둡게 */
 }
 .whenrow .btn{ flex:0 0 auto; min-height:44px; padding:0 12px; font-size:14px; }
-/* 시간칸의 "오전/오후" 부분이 숫자와 잘 구분되도록 굵게 + 강조색으로 */
-.whenrow .field::-webkit-datetime-edit-ampm-field{ font-weight:800; color:var(--accent); }
-.whenrow .field::-webkit-datetime-edit-ampm-field:focus{
-  background:var(--accent); color:var(--accent-ink); border-radius:4px; outline:none;
+/* 시간칸의 "오전/오후" 부분이 숫자와 잘 구분되도록 굵게 + 강조색으로
+   (안드로이드 크롬은 <input type="time"> 내부를 ::-webkit-datetime-edit-ampm-field 로
+   못 건드리므로, 글자를 투명하게 만들고 그 위에 직접 그린 표시를 겹칩니다 — syncTimeDisplay() 참고) */
+.timewrap{ position:relative; flex:1 1 auto; min-width:0; }
+.timewrap .field{ width:100%; color:transparent; }
+.timewrap .time-display{
+  position:absolute; inset:0; display:flex; align-items:center;
+  padding:8px 10px; font-size:15px; pointer-events:none; color:var(--text); white-space:nowrap;
 }
+.timewrap .time-display .ampm{ font-weight:800; color:var(--accent); margin-right:4px; }
 /* 오늘이 아닌 날짜를 고르면 노란 테두리로 눈에 띄게 */
 .whenrow.past .field{ border-color:var(--accent); }
 .whenhint{ flex:0 0 auto; font-size:12px; color:var(--accent); padding:0 2px; }
@@ -439,7 +444,10 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
     <!-- 3. 기록 시각 (기본은 오늘 날짜·지금 시간, 지난 날짜도 고를 수 있습니다) -->
     <div class="whenrow" id="whenRow">
       <input id="inpDate" class="field" type="date" aria-label="기록 날짜">
-      <input id="inpTime" class="field" type="time" aria-label="기록 시간">
+      <span class="timewrap">
+        <input id="inpTime" class="field" type="time" aria-label="기록 시간">
+        <span class="time-display" aria-hidden="true"></span>
+      </span>
       <button id="btnNow" class="btn small" type="button">지금</button>
     </div>
     <div id="whenHint" class="whenhint"></div>
@@ -452,7 +460,10 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
       </label>
       <div class="whenrow hidden" id="alarmRow">
         <input id="alarmDate" class="field" type="date" aria-label="알람 날짜">
-        <input id="alarmTime" class="field" type="time" aria-label="알람 시간">
+        <span class="timewrap">
+          <input id="alarmTime" class="field" type="time" aria-label="알람 시간">
+          <span class="time-display" aria-hidden="true"></span>
+        </span>
       </div>
       <div id="alarmHint" class="alarmhint"></div>
     </div>
@@ -562,7 +573,10 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
       <h3>기록 시각</h3>
       <div class="whenrow" id="detWhenRow">
         <input id="detDate" class="field" type="date" aria-label="기록 날짜">
-        <input id="detTime" class="field" type="time" aria-label="기록 시간">
+        <span class="timewrap">
+          <input id="detTime" class="field" type="time" aria-label="기록 시간">
+          <span class="time-display" aria-hidden="true"></span>
+        </span>
       </div>
       <p class="help">날짜를 바꾸면 히스토리에서도 그 날짜 자리로 옮겨집니다. (아래 '수정 저장'을 눌러야 반영됩니다)</p>
     </div>
@@ -576,7 +590,10 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
         </label>
         <div class="whenrow hidden" id="detAlarmRow">
           <input id="detAlarmDate" class="field" type="date" aria-label="알람 날짜">
-          <input id="detAlarmTime" class="field" type="time" aria-label="알람 시간">
+          <span class="timewrap">
+            <input id="detAlarmTime" class="field" type="time" aria-label="알람 시간">
+            <span class="time-display" aria-hidden="true"></span>
+          </span>
         </div>
         <div id="detAlarmHint" class="alarmhint"></div>
       </div>
@@ -1024,7 +1041,39 @@ function fmtHm(d) {
 function fillWhenInputs(dateEl, timeEl, d) {
   dateEl.value = dayKey(d);
   timeEl.value = fmtHm(d);
+  syncTimeDisplay(timeEl);
 }
+
+/* 시간칸(<input type="time">)의 "오전/오후" 를 굵게+강조색으로 보여주기 위한 겹침 표시.
+   안드로이드 크롬은 이 입력칸 안의 오전/오후 글자만 따로 CSS로 못 건드리므로,
+   입력칸 글자는 투명하게 만들고(.timewrap .field{color:transparent}) 그 위에
+   이 함수가 직접 만든 표시(.time-display)를 겹쳐 보여줍니다. */
+function syncTimeDisplay(timeEl) {
+  const wrap = timeEl.closest('.timewrap');
+  const disp = wrap && wrap.querySelector('.time-display');
+  if (!disp) return;
+
+  disp.textContent = '';
+  const hm = (timeEl.value || '').split(':').map(Number);
+  if (hm.length < 2 || isNaN(hm[0]) || isNaN(hm[1])) return;
+
+  const isPM = hm[0] >= 12;
+  let h12 = hm[0] % 12; if (h12 === 0) h12 = 12;
+
+  const ampm = document.createElement('span');
+  ampm.className = 'ampm';
+  ampm.textContent = isPM ? '오후' : '오전';
+  disp.appendChild(ampm);
+  disp.appendChild(document.createTextNode(' ' + h12 + ':' + pad2(hm[1])));
+}
+
+// 시간칸 값이 사용자 조작으로 바뀔 때도(프로그램으로 fillWhenInputs 를 거치지 않는 경우) 표시를 맞춰 줍니다
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.matches && e.target.matches('.timewrap input[type="time"]')) syncTimeDisplay(e.target);
+}, true);
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.matches && e.target.matches('.timewrap input[type="time"]')) syncTimeDisplay(e.target);
+}, true);
 
 // 입력칸 두 개를 읽어서 Date로 만듭니다 (비었거나 이상하면 fallback)
 function readWhenInputs(dateEl, timeEl, fallback) {
