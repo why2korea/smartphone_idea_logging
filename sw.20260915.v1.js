@@ -7,11 +7,11 @@
           (2026-08-14 추가)
 
    ※ 코드를 수정했는데 휴대폰에서 바뀌지 않으면
-      아래 CACHE_NAME 의 v11 을 v12, v13 ... 으로 올려주세요.
+      아래 CACHE_NAME 의 v10 을 v11, v12 ... 으로 올려주세요.
       그러면 옛 캐시를 버리고 새 파일을 내려받습니다.
    ============================================================ */
 
-const CACHE_NAME = 'why2korea-memo-v11';
+const CACHE_NAME = 'why2korea-memo-v10';
 
 // 미리 저장해 둘 파일 목록
 const PRECACHE_FILES = [

@@ -121,11 +121,6 @@ textarea.body{ flex:1 1 auto; min-height:90px; resize:none; line-height:1.5; }
   padding:8px 10px; font-size:15px; color-scheme:dark;   /* 안드로이드 달력 팝업도 어둡게 */
 }
 .whenrow .btn{ flex:0 0 auto; min-height:44px; padding:0 12px; font-size:14px; }
-/* 시간칸의 "오전/오후" 부분이 숫자와 잘 구분되도록 굵게 + 강조색으로 */
-.whenrow .field::-webkit-datetime-edit-ampm-field{ font-weight:800; color:var(--accent); }
-.whenrow .field::-webkit-datetime-edit-ampm-field:focus{
-  background:var(--accent); color:var(--accent-ink); border-radius:4px; outline:none;
-}
 /* 오늘이 아닌 날짜를 고르면 노란 테두리로 눈에 띄게 */
 .whenrow.past .field{ border-color:var(--accent); }
 .whenhint{ flex:0 0 auto; font-size:12px; color:var(--accent); padding:0 2px; }
