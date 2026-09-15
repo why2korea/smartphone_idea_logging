@@ -120,22 +120,17 @@ textarea.body{ flex:1 1 auto; min-height:90px; resize:none; line-height:1.5; }
   flex:1 1 auto; min-width:0; min-height:44px;
   padding:8px 10px; font-size:15px; color-scheme:dark;   /* 안드로이드 달력 팝업도 어둡게 */
 }
-/* 날짜칸은 20% 좁게, 시간칸은 20% 넓게 (기존 1:1 → 2:3) */
-.whenrow input[type="date"].field{ flex:2 1 0; }
 .whenrow .btn{ flex:0 0 auto; min-height:44px; padding:0 12px; font-size:14px; }
-/* 시간칸 — 안드로이드 크롬의 OS 기본 시계 다이얼로그는 오전/오후 중 어느 쪽이 선택된
-   건지 실기기로 확인해보니 구분이 안 돼서(::-webkit-datetime-edit-ampm-field 도 안 먹힘),
-   자체 팝업(#timeModal)으로 완전히 대체했습니다. 이 입력칸은 값만 들고 있을 뿐 직접
-   조작하지 않고(pointer-events:none), 겹쳐 그린 표시(.time-display)를 탭하면 팝업이 열립니다. */
-.timewrap{ position:relative; flex:3 1 0; min-width:0; }
-.timewrap .field{ width:100%; color:transparent; pointer-events:none; }
+/* 시간칸의 "오전/오후" 부분이 숫자와 잘 구분되도록 굵게 + 강조색으로
+   (안드로이드 크롬은 <input type="time"> 내부를 ::-webkit-datetime-edit-ampm-field 로
+   못 건드리므로, 글자를 투명하게 만들고 그 위에 직접 그린 표시를 겹칩니다 — syncTimeDisplay() 참고) */
+.timewrap{ position:relative; flex:1 1 auto; min-width:0; }
+.timewrap .field{ width:100%; color:transparent; }
 .timewrap .time-display{
-  position:absolute; inset:0; display:flex; align-items:center; justify-content:space-between;
-  padding:8px 10px; font-size:15px; color:var(--text); white-space:nowrap; cursor:pointer;
+  position:absolute; inset:0; display:flex; align-items:center;
+  padding:8px 10px; font-size:15px; pointer-events:none; color:var(--text); white-space:nowrap;
 }
-.timewrap .time-display:active{ opacity:0.7; }
 .timewrap .time-display .ampm{ font-weight:800; color:var(--accent); margin-right:4px; }
-.timewrap .time-display .chev{ color:var(--sub); font-size:12px; }
 /* 오늘이 아닌 날짜를 고르면 노란 테두리로 눈에 띄게 */
 .whenrow.past .field{ border-color:var(--accent); }
 .whenhint{ flex:0 0 auto; font-size:12px; color:var(--accent); padding:0 2px; }
@@ -373,20 +368,6 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
 .modalbtns .btn{ flex:1; padding:0 6px; font-size:15px; }
 
 /* ============================================================
-   [CSS 8-2b] 시간 선택 팝업 — 오전/오후를 탭하면 즉시 굵게+강조색으로
-   바뀌어 어느 쪽이 선택됐는지 한눈에 보이게 만든 자체 피커
-   ============================================================ */
-.ampmrow{ display:flex; gap:8px; margin:2px 0 14px; }
-.ampmbtn{
-  flex:1; min-height:52px; border-radius:12px; font-size:18px; font-weight:700;
-  background:var(--bg); color:var(--text); border:1px solid var(--line); cursor:pointer;
-}
-.ampmbtn.on{ background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:900; }
-.hmrow{ display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:16px; }
-.hmrow select.field{ font-size:28px; font-weight:700; text-align:center; padding:10px 6px; width:92px; color-scheme:dark; }
-.hmrow .colon{ font-size:26px; font-weight:700; color:var(--sub); }
-
-/* ============================================================
    [CSS 8-3] 발송 결과 팝업
    ------------------------------------------------------------
    토스트(아래에서 잠깐 지나가는 알림)는 너무 빨리 사라져서
@@ -464,8 +445,8 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
     <div class="whenrow" id="whenRow">
       <input id="inpDate" class="field" type="date" aria-label="기록 날짜">
       <span class="timewrap">
-        <input id="inpTime" class="field" type="time" tabindex="-1" aria-hidden="true">
-        <span class="time-display" role="button" tabindex="0" aria-label="기록 시간"></span>
+        <input id="inpTime" class="field" type="time" aria-label="기록 시간">
+        <span class="time-display" aria-hidden="true"></span>
       </span>
       <button id="btnNow" class="btn small" type="button">지금</button>
     </div>
@@ -480,8 +461,8 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
       <div class="whenrow hidden" id="alarmRow">
         <input id="alarmDate" class="field" type="date" aria-label="알람 날짜">
         <span class="timewrap">
-          <input id="alarmTime" class="field" type="time" tabindex="-1" aria-hidden="true">
-          <span class="time-display" role="button" tabindex="0" aria-label="알람 시간"></span>
+          <input id="alarmTime" class="field" type="time" aria-label="알람 시간">
+          <span class="time-display" aria-hidden="true"></span>
         </span>
       </div>
       <div id="alarmHint" class="alarmhint"></div>
@@ -593,8 +574,8 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
       <div class="whenrow" id="detWhenRow">
         <input id="detDate" class="field" type="date" aria-label="기록 날짜">
         <span class="timewrap">
-          <input id="detTime" class="field" type="time" tabindex="-1" aria-hidden="true">
-          <span class="time-display" role="button" tabindex="0" aria-label="기록 시간"></span>
+          <input id="detTime" class="field" type="time" aria-label="기록 시간">
+          <span class="time-display" aria-hidden="true"></span>
         </span>
       </div>
       <p class="help">날짜를 바꾸면 히스토리에서도 그 날짜 자리로 옮겨집니다. (아래 '수정 저장'을 눌러야 반영됩니다)</p>
@@ -610,8 +591,8 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
         <div class="whenrow hidden" id="detAlarmRow">
           <input id="detAlarmDate" class="field" type="date" aria-label="알람 날짜">
           <span class="timewrap">
-            <input id="detAlarmTime" class="field" type="time" tabindex="-1" aria-hidden="true">
-            <span class="time-display" role="button" tabindex="0" aria-label="알람 시간"></span>
+            <input id="detAlarmTime" class="field" type="time" aria-label="알람 시간">
+            <span class="time-display" aria-hidden="true"></span>
           </span>
         </div>
         <div id="detAlarmHint" class="alarmhint"></div>
@@ -902,30 +883,6 @@ label.radio input{ width:22px; height:22px; accent-color:var(--accent); }
   </div>
 </div>
 
-<!-- ============================================================
-     🕐 시간 선택 팝업 — 기록 시각·알람 시간칸을 탭하면 뜹니다
-     안드로이드 OS 기본 시계 다이얼로그는 오전/오후 중 선택된 쪽이
-     구분이 안 돼서, 탭하면 즉시 굵게+강조색으로 바뀌는 이 팝업으로 대체했습니다.
-     ============================================================ -->
-<div id="timeModal" class="modal hidden">
-  <div class="sheet">
-    <h2>시간 선택</h2>
-    <div class="ampmrow">
-      <button id="tpAm" type="button" class="ampmbtn" data-ampm="AM">오전</button>
-      <button id="tpPm" type="button" class="ampmbtn" data-ampm="PM">오후</button>
-    </div>
-    <div class="hmrow">
-      <select id="tpHour" class="field" aria-label="시"></select>
-      <span class="colon">:</span>
-      <select id="tpMinute" class="field" aria-label="분"></select>
-    </div>
-    <div class="modalbtns">
-      <button id="tpCancel" class="btn" type="button">취소</button>
-      <button id="tpOk" class="btn primary" type="button">설정</button>
-    </div>
-  </div>
-</div>
-
 <!-- 큰 이미지 보기 / 토스트 -->
 <div id="imgViewer" class="hidden"><img id="imgViewerImg" alt="손글씨"></div>
 <div id="toast"></div>
@@ -1087,11 +1044,10 @@ function fillWhenInputs(dateEl, timeEl, d) {
   syncTimeDisplay(timeEl);
 }
 
-/* 시간칸(<input type="time">)의 닫힌 상태 표시.
+/* 시간칸(<input type="time">)의 "오전/오후" 를 굵게+강조색으로 보여주기 위한 겹침 표시.
    안드로이드 크롬은 이 입력칸 안의 오전/오후 글자만 따로 CSS로 못 건드리므로,
    입력칸 글자는 투명하게 만들고(.timewrap .field{color:transparent}) 그 위에
-   이 함수가 직접 만든 표시(.time-display)를 겹쳐 보여줍니다. 입력칸 자체는
-   pointer-events:none 이라 탭은 이 겹침 표시가 받아서 #timeModal 을 엽니다. */
+   이 함수가 직접 만든 표시(.time-display)를 겹쳐 보여줍니다. */
 function syncTimeDisplay(timeEl) {
   const wrap = timeEl.closest('.timewrap');
   const disp = wrap && wrap.querySelector('.time-display');
@@ -1104,107 +1060,17 @@ function syncTimeDisplay(timeEl) {
   const isPM = hm[0] >= 12;
   let h12 = hm[0] % 12; if (h12 === 0) h12 = 12;
 
-  const left = document.createElement('span');
   const ampm = document.createElement('span');
   ampm.className = 'ampm';
   ampm.textContent = isPM ? '오후' : '오전';
-  left.appendChild(ampm);
-  left.appendChild(document.createTextNode(' ' + h12 + ':' + pad2(hm[1])));
-  disp.appendChild(left);
-
-  const chev = document.createElement('span');
-  chev.className = 'chev';
-  chev.textContent = '⌄';
-  disp.appendChild(chev);
+  disp.appendChild(ampm);
+  disp.appendChild(document.createTextNode(' ' + h12 + ':' + pad2(hm[1])));
 }
 
-/* ── 커스텀 시간 선택 팝업 (#timeModal) ────────────────────────────────────
-   안드로이드 OS 기본 시계 다이얼로그는 오전/오후 중 어느 쪽이 선택되어 있는지
-   실기기로 확인해보니 구분이 안 되고, ::-webkit-datetime-edit-ampm-field 같은
-   CSS로도 그 다이얼로그 자체를 못 건드립니다. 그래서 시간칸을 탭하면 OS 피커
-   대신 이 자체 팝업을 띄우고, 오전/오후 버튼은 탭하는 즉시 굵게+강조색(노랑)
-   배경으로 바뀌도록(.ampmbtn.on) 완전히 직접 그립니다. ──────────────────── */
-(function initTimePicker() {
-  const modal  = $('#timeModal');
-  const hourEl = $('#tpHour');
-  const minEl  = $('#tpMinute');
-  const amBtn  = $('#tpAm');
-  const pmBtn  = $('#tpPm');
-  let target = null; // 지금 고치고 있는 실제 <input type="time">
-
-  for (let h = 1; h <= 12; h++) {
-    const opt = document.createElement('option');
-    opt.value = String(h); opt.textContent = String(h) + '시';
-    hourEl.appendChild(opt);
-  }
-  for (let m = 0; m < 60; m++) {
-    const opt = document.createElement('option');
-    opt.value = pad2(m); opt.textContent = pad2(m) + '분';
-    minEl.appendChild(opt);
-  }
-
-  function setAmpm(v) {
-    modal.dataset.ampm = v;
-    amBtn.classList.toggle('on', v === 'AM');
-    pmBtn.classList.toggle('on', v === 'PM');
-  }
-
-  function open(timeEl) {
-    target = timeEl;
-    const hm = (timeEl.value || '').split(':').map(Number);
-    const now = new Date();
-    const h = (hm.length >= 2 && !isNaN(hm[0])) ? hm[0] : now.getHours();
-    const m = (hm.length >= 2 && !isNaN(hm[1])) ? hm[1] : now.getMinutes();
-    let h12 = h % 12; if (h12 === 0) h12 = 12;
-    hourEl.value = String(h12);
-    minEl.value = pad2(m);
-    setAmpm(h >= 12 ? 'PM' : 'AM');
-    modal.classList.remove('hidden');
-    // 오전/오후 버튼에 미리 손을 얹어 둡니다 (키보드·스크린리더로도 바로 조작 가능하게)
-    setTimeout(() => { try { (h >= 12 ? pmBtn : amBtn).focus(); } catch (e) {} }, 30);
-  }
-
-  function close() { modal.classList.add('hidden'); target = null; }
-
-  amBtn.addEventListener('click', () => setAmpm('AM'));
-  pmBtn.addEventListener('click', () => setAmpm('PM'));
-  $('#tpCancel').addEventListener('click', close);
-  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
-
-  $('#tpOk').addEventListener('click', () => {
-    if (!target) { close(); return; }
-    let h12 = parseInt(hourEl.value, 10);
-    const m = parseInt(minEl.value, 10);
-    let h = h12 % 12;
-    if (modal.dataset.ampm === 'PM') h += 12;
-    target.value = pad2(h) + ':' + pad2(m);
-    target.dispatchEvent(new Event('change', { bubbles: true }));
-    close();
-  });
-
-  // 시간칸(.time-display)을 탭하거나 키보드로 Enter/Space를 누르면 팝업을 엽니다
-  document.addEventListener('click', (e) => {
-    const disp = e.target.closest && e.target.closest('.timewrap .time-display');
-    if (!disp) return;
-    const timeEl = disp.previousElementSibling;
-    if (timeEl && timeEl.matches('input[type="time"]')) open(timeEl);
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    const disp = e.target.closest && e.target.closest('.timewrap .time-display');
-    if (!disp) return;
-    e.preventDefault();
-    const timeEl = disp.previousElementSibling;
-    if (timeEl && timeEl.matches('input[type="time"]')) open(timeEl);
-  });
-
-  // PC에서 Esc 키로 취소 (다른 팝업들과 동일한 방식)
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
-  });
-})();
-
-// 시간칸 값이 바뀔 때(위 팝업에서 확인을 누르든, 다른 코드가 프로그램으로 바꾸든) 표시를 맞춰 줍니다
+// 시간칸 값이 사용자 조작으로 바뀔 때도(프로그램으로 fillWhenInputs 를 거치지 않는 경우) 표시를 맞춰 줍니다
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.matches && e.target.matches('.timewrap input[type="time"]')) syncTimeDisplay(e.target);
+}, true);
 document.addEventListener('change', (e) => {
   if (e.target && e.target.matches && e.target.matches('.timewrap input[type="time"]')) syncTimeDisplay(e.target);
 }, true);
@@ -3609,7 +3475,7 @@ const alarmFiredIds = new Set();
 
 // 다른 팝업이 떠 있으면 알람은 잠시 기다립니다 (발송 중 화면 등을 가리지 않도록)
 function otherModalOpen() {
-  return ['#sendModal', '#directModal', '#resultModal', '#unlockModal', '#timeModal']
+  return ['#sendModal', '#directModal', '#resultModal', '#unlockModal']
     .some((sel) => !$(sel).classList.contains('hidden'));
 }
 
